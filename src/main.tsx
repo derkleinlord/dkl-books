@@ -19,6 +19,24 @@ import type { BookDto, ChapterDto, SeriesDto, UserDto } from "../shared/types";
 import "./style.css?theme=forest-v2";
 type Me = UserDto | null;
 type View = "library" | "bookmarks" | "progress" | "admin";
+const viewPaths: Record<View, string> = {
+  library: "/",
+  bookmarks: "/lesezeichen",
+  progress: "/lesefortschritt",
+  admin: "/verwaltung",
+};
+function routeFromPath(pathname = window.location.pathname): {
+  view: View;
+  bookId?: string;
+} {
+  const book = pathname.match(/^\/buecher\/([^/]+)\/?$/);
+  if (book) return { view: "library", bookId: decodeURIComponent(book[1]) };
+  const normalized = pathname === "/" ? "/" : pathname.replace(/\/$/, "");
+  const view = (Object.entries(viewPaths) as [View, string][]).find(
+    ([, path]) => path === normalized,
+  )?.[0];
+  return { view: view || "library" };
+}
 async function api<T = any>(url: string, init?: RequestInit): Promise<T> {
   const hasJsonBody = init?.body !== undefined && !(init.body instanceof FormData);
   const r = await fetch(url, {
@@ -34,9 +52,10 @@ async function api<T = any>(url: string, init?: RequestInit): Promise<T> {
   return b;
 }
 function App() {
+  const initialRoute = useRef(routeFromPath()).current;
   const [series, setSeries] = useState<SeriesDto[]>([]),
     [me, setMe] = useState<Me>(null),
-    [view, setView] = useState<View>("library"),
+    [view, setView] = useState<View>(initialRoute.view),
     [query, setQuery] = useState(""),
     [selected, setSelected] = useState<BookDto | null>(null),
     [reader, setReader] = useState<{ book: BookDto; index: number } | null>(
@@ -65,6 +84,38 @@ function App() {
     };
   useEffect(() => {
     load();
+    if (initialRoute.bookId)
+      api<{ book: BookDto }>(
+        "/api/library/books/" + encodeURIComponent(initialRoute.bookId),
+      )
+        .then((x) => setSelected(x.book))
+        .catch(() => {
+          history.replaceState(null, "", "/");
+          note("Buch nicht gefunden.");
+        });
+  }, []);
+  useEffect(() => {
+    const onPopState = async () => {
+      const route = routeFromPath();
+      setView(route.view);
+      setReader(null);
+      if (!route.bookId) return setSelected(null);
+      try {
+        setSelected(
+          (
+            await api<{ book: BookDto }>(
+              "/api/library/books/" + encodeURIComponent(route.bookId),
+            )
+          ).book,
+        );
+      } catch {
+        history.replaceState(null, "", "/");
+        setSelected(null);
+        note("Buch nicht gefunden.");
+      }
+    };
+    addEventListener("popstate", onPopState);
+    return () => removeEventListener("popstate", onPopState);
   }, []);
   useEffect(() => {
     const t = setTimeout(
@@ -77,7 +128,17 @@ function App() {
     return () => clearTimeout(t);
   }, [query]);
   const books = series.flatMap((s) => s.books);
+  function navigateView(next: View) {
+    history.pushState(null, "", viewPaths[next]);
+    setView(next);
+    setSelected(null);
+    setReader(null);
+  }
   async function open(b: BookDto) {
+    const path = "/buecher/" + encodeURIComponent(b.id);
+    if (window.location.pathname !== path) history.pushState(null, "", path);
+    setView("library");
+    setReader(null);
     setSelected(
       (await api<{ book: BookDto }>("/api/library/books/" + b.id)).book,
     );
@@ -88,6 +149,8 @@ function App() {
       : (await api<{ book: BookDto }>("/api/library/books/" + b.id)).book;
     if (!full.chapters?.length)
       return note("Noch keine Kapitel veröffentlicht.");
+    const path = "/buecher/" + encodeURIComponent(full.id);
+    if (window.location.pathname !== path) history.pushState(null, "", path);
     setSelected(null);
     setReader({ book: full, index: i });
     if (me)
@@ -103,6 +166,7 @@ function App() {
       note("Die Sitzung wurde lokal beendet.");
     } finally {
       setMe(null);
+      history.pushState(null, "", "/");
       setView("library");
       setSelected(null);
       setReader(null);
@@ -117,24 +181,24 @@ function App() {
   return (
     <>
       <header>
-        <button className="brand" onClick={() => setView("library")}>
+        <button className="brand" onClick={() => navigateView("library")}>
           <BookOpen size={34} />
           <span>
             Meine<span>Geschichtenbibliothek.</span>
           </span>
         </button>
         <nav>
-          <button onClick={() => setView("library")}>Bibliothek</button>
+          <button onClick={() => navigateView("library")}>Bibliothek</button>
           {me && (
             <>
-              <button onClick={() => setView("bookmarks")}>Lesezeichen</button>
-              <button onClick={() => setView("progress")}>
+              <button onClick={() => navigateView("bookmarks")}>Lesezeichen</button>
+              <button onClick={() => navigateView("progress")}>
                 Lesefortschritt
               </button>
             </>
           )}
           {me?.role === "ADMIN" && (
-            <button onClick={() => setView("admin")}>Verwaltung</button>
+            <button onClick={() => navigateView("admin")}>Verwaltung</button>
           )}
         </nav>
         <div className="header-actions">
@@ -225,12 +289,12 @@ function App() {
       {view === "progress" && <Personal kind="progress" read={read} />}{" "}
       {view === "admin" && me?.role === "ADMIN" && <Admin note={note} />}{" "}
       {selected && (
-        <div className="modal-backdrop" onClick={() => setSelected(null)}>
+        <div className="modal-backdrop" onClick={() => navigateView("library")}>
           <section
             className="detail-modal"
             onClick={(e) => e.stopPropagation()}
           >
-            <button className="close" onClick={() => setSelected(null)}>
+            <button className="close" onClick={() => navigateView("library")}>
               <X />
             </button>
             <div className="detail-hero">
@@ -266,7 +330,10 @@ function App() {
         <Reader
           value={reader}
           me={me}
-          close={() => setReader(null)}
+          close={() => {
+            setSelected(reader.book);
+            setReader(null);
+          }}
           change={(i) => {
             setReader({ ...reader, index: i });
             if (me)
