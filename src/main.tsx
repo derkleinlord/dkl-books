@@ -4,7 +4,6 @@ import {
   BookOpen,
   Search,
   Bookmark,
-  Download,
   LogIn,
   LogOut,
   Plus,
@@ -15,7 +14,6 @@ import {
   ChevronRight,
   Users,
 } from "lucide-react";
-import { jsPDF } from "jspdf";
 import type { BookDto, ChapterDto, SeriesDto, UserDto } from "../shared/types";
 import "./style.css?theme=forest-v2";
 type Me = UserDto | null;
@@ -172,7 +170,7 @@ function App() {
               <p>Entdecke Bücher und lies ihre Kapitel direkt online.</p>
             </div>
           </section>
-          <main>
+          <main className="library-main">
             <div className="section-heading">
               <div>
                 <div className="eyebrow">DEIN NÄCHSTES ABENTEUER</div>
@@ -234,28 +232,32 @@ function App() {
             <button className="close" onClick={() => setSelected(null)}>
               <X />
             </button>
-            {selected.coverUrl ? (
-              <img className="detail-cover" src={selected.coverUrl} />
-            ) : (
-              <BookOpen size={60} />
-            )}
-            <h2>{selected.title}</h2>
-            <p>{selected.description}</p>
-            {selected.chapters?.map((c, i) => (
-              <div className="volume" key={c.id}>
-                <b>{i + 1}</b>
-                <h3>{c.title}</h3>
-                <button
-                  className="gold-button"
-                  onClick={() => read(selected, i)}
-                >
-                  Lesen
-                </button>
+            <div className="detail-hero">
+              {selected.coverUrl ? (
+                <img className="detail-cover" src={selected.coverUrl} />
+              ) : (
+                <div className="detail-cover-placeholder">
+                  <BookOpen size={60} />
+                </div>
+              )}
+              <div className="detail-copy">
+                <h2>{selected.title}</h2>
+                <p>{selected.description}</p>
               </div>
-            ))}
-            <button className="outline-button" onClick={() => pdf(selected)}>
-              <Download /> PDF
-            </button>
+            </div>
+            <div className="chapter-list">
+              {selected.chapters?.map((c, i) => (
+                <div className="volume" key={c.id}>
+                  <h3>{c.title}</h3>
+                  <button
+                    className="gold-button"
+                    onClick={() => read(selected, i)}
+                  >
+                    Lesen
+                  </button>
+                </div>
+              ))}
+            </div>
           </section>
         </div>
       )}
@@ -440,23 +442,9 @@ function Reader({
             Weiter <ChevronRight />
           </button>
         </div>
-        {!me && <p>Melde dich an, um den Lesestand zu speichern.</p>}
       </article>
     </div>
   );
-}
-async function pdf(b: BookDto) {
-  const d = new jsPDF();
-  d.text(b.title, 20, 25);
-  b.chapters?.forEach((c, i) => {
-    d.addPage();
-    d.text(`${i + 1}. ${c.title}`, 20, 25);
-    const text =
-      new DOMParser().parseFromString(c.content, "text/html").body
-        .textContent || "";
-    d.text(d.splitTextToSize(text, 170), 20, 40);
-  });
-  d.save(b.title + ".pdf");
 }
 function Personal({
   kind,
