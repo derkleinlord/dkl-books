@@ -85,14 +85,12 @@ model Chapter {
   title     String            @db.VarChar(200)
   content   String            @db.LongText
   sortOrder Int
-  status    PublishStatus     @default(DRAFT)
   createdAt DateTime          @default(now())
   updatedAt DateTime          @updatedAt
   book      Book              @relation(fields: [bookId], references: [id], onDelete: Cascade)
   progress  ReadingProgress[]
 
   @@unique([bookId, sortOrder])
-  @@index([bookId, status, sortOrder])
 }
 
 model Bookmark {

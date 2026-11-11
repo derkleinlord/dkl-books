@@ -848,7 +848,7 @@ function Admin({ note }: { note: (s: string) => void }) {
                           Band {b.volumeNumber}: {b.title}
                         </h3>
                         <p>
-                          {b.status} · {b.chapters?.length || 0} Kapitel
+                          {b.status === "PUBLISHED" ? "Veröffentlicht" : "Entwurf"} · {b.chapters?.length || 0} Kapitel
                         </p>
                       </div>
                     </button>
@@ -918,9 +918,7 @@ function Admin({ note }: { note: (s: string) => void }) {
                     <React.Fragment key={c.id}>
                       <div className="chapter-row">
                         <b>{c.sortOrder}</b>
-                        <span>
-                          {c.title} · {c.status}
-                        </span>
+                        <span>{c.title}</span>
                         <button
                           aria-label="Kapitel bearbeiten"
                           title="Kapitel bearbeiten"
@@ -1141,7 +1139,6 @@ function ChapterForm({
             bookId: id,
             title: get(f, "title"),
             sortOrder: Number(get(f, "order")),
-            status: get(f, "status"),
             content: editor.current?.innerHTML || "",
           }),
         });
@@ -1157,13 +1154,6 @@ function ChapterForm({
         <label>
           Nummer
           <input name="order" type="number" min="0" defaultValue={chapter?.sortOrder ?? next} />
-        </label>
-        <label>
-          Status
-          <select name="status" defaultValue={chapter?.status || "DRAFT"}>
-            <option value="DRAFT">Entwurf</option>
-            <option value="PUBLISHED">Veröffentlicht</option>
-          </select>
         </label>
       </div>
       <div className="editor-toolbar">
