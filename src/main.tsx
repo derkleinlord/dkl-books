@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   BookOpen,
@@ -12,6 +12,7 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Users,
 } from "lucide-react";
 import type { BookDto, ChapterDto, SeriesDto, UserDto } from "../shared/types";
@@ -406,43 +407,261 @@ function Reader({
   close: () => void;
   change: (i: number) => void;
 }) {
-  const cs = value.book.chapters!,
-    c = cs[value.index];
+  type Page = { chapterIndex: number; localPage: number; chapterPages: number };
+  type Metrics = { width: number; height: number; double: boolean };
+  const cs = value.book.chapters!;
+  const viewport = useRef<HTMLDivElement>(null);
+  const dragStart = useRef<{ x: number; time: number } | null>(null);
+  const lastChapter = useRef(value.index);
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [pages, setPages] = useState<Page[]>([]);
+  const [page, setPage] = useState(0);
+  const [ready, setReady] = useState(false);
+  const [turn, setTurn] = useState<{ direction: 1 | -1; progress: number; grabY: number; settling: boolean } | null>(null);
+
+  const storageKey = `dkl-reader:${value.book.id}`;
+  const visibleCount = metrics?.double ? 2 : 1;
+  const pagePaddingX = metrics?.double ? 42 : 24;
+  const pagePaddingTop = metrics && metrics.height < 620 ? 22 : 36;
+  const pagePaddingBottom = metrics && metrics.height < 620 ? 34 : 48;
+  const flowWidth = metrics ? metrics.width - pagePaddingX * 2 : 0;
+  const flowHeight = metrics ? metrics.height - pagePaddingTop - pagePaddingBottom : 0;
+  const canMove = useCallback((direction: 1 | -1) => {
+    const step = metrics?.double ? 2 : 1;
+    return direction === 1 ? page + step < pages.length : page > 0;
+  }, [metrics?.double, page, pages.length]);
+
+  const persist = useCallback((target: number) => {
+    const p = pages[target];
+    if (!p) return;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify({
+        chapterId: cs[p.chapterIndex].id,
+        offset: p.chapterPages > 1 ? p.localPage / (p.chapterPages - 1) : 0,
+      }));
+    } catch { /* Local storage may be unavailable in private contexts. */ }
+    if (lastChapter.current !== p.chapterIndex) {
+      lastChapter.current = p.chapterIndex;
+      change(p.chapterIndex);
+    }
+  }, [change, cs, pages, storageKey]);
+
+  const settleTurn = useCallback((direction: 1 | -1, complete: boolean) => {
+    if (turn?.settling || !canMove(direction)) return;
+    setTurn({ direction, progress: complete ? 1 : 0, grabY: turn?.grabY ?? .5, settling: true });
+    window.setTimeout(() => {
+      if (complete) {
+        const step = metrics?.double ? 2 : 1;
+        setPage((current) => {
+          const target = Math.max(0, Math.min(current + direction * step, pages.length - 1));
+          persist(target);
+          return target;
+        });
+      }
+      setTurn(null);
+    }, 380);
+  }, [canMove, metrics?.double, pages.length, persist, turn?.settling]);
+
+  const startTurn = useCallback((direction: 1 | -1) => {
+    if (turn || !canMove(direction)) return;
+    setTurn({ direction, progress: 0.02, grabY: .5, settling: false });
+    requestAnimationFrame(() => settleTurn(direction, true));
+  }, [canMove, settleTurn, turn]);
+
+  useEffect(() => {
+    const element = viewport.current;
+    if (!element) return;
+    let timer = 0;
+    const size = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        const rect = element.getBoundingClientRect();
+        const double = rect.width >= 800;
+        const width = Math.max(260, Math.floor(Math.min(560, (rect.width - (double ? 72 : 28)) / (double ? 2 : 1))));
+        const height = Math.max(360, Math.floor(Math.min(780, rect.height - 52)));
+        setMetrics((old) => old && old.width === width && old.height === height && old.double === double ? old : { width, height, double });
+      }, 80);
+    };
+    const observer = new ResizeObserver(size);
+    observer.observe(element);
+    size();
+    return () => { observer.disconnect(); window.clearTimeout(timer); };
+  }, []);
+
+  useEffect(() => {
+    if (!metrics) return;
+    let cancelled = false;
+    setReady(false);
+    const paginate = async () => {
+      await document.fonts?.ready;
+      if (cancelled) return;
+      const counts: number[] = [];
+      for (let i = 0; i < cs.length; i++) {
+        const measure = document.createElement("div");
+        measure.className = "reader-measure chapter-flow";
+        measure.style.width = `${flowWidth}px`;
+        measure.style.height = `${flowHeight}px`;
+        measure.style.columnWidth = `${flowWidth}px`;
+        const header = document.createElement("header");
+        header.className = "page-chapter-header";
+        const eyebrow = document.createElement("div");
+        eyebrow.className = "eyebrow";
+        eyebrow.textContent = `KAPITEL ${i + 1} VON ${cs.length}`;
+        const heading = document.createElement("h1");
+        heading.textContent = cs[i].title;
+        const ornament = document.createElement("div");
+        ornament.className = "ornament";
+        ornament.textContent = "❦";
+        header.append(eyebrow, heading, ornament);
+        const content = document.createElement("div");
+        content.className = "chapter-content";
+        content.innerHTML = cs[i].content || "<p></p>";
+        measure.append(header, content);
+        document.body.appendChild(measure);
+        counts.push(Math.max(1, Math.ceil((measure.scrollWidth - 1) / flowWidth)));
+        measure.remove();
+      }
+      if (cancelled) return;
+      const nextPages = counts.flatMap((count, chapterIndex) =>
+        Array.from({ length: count }, (_, localPage) => ({ chapterIndex, localPage, chapterPages: count })),
+      );
+      let target = nextPages.findIndex((p) => p.chapterIndex === value.index);
+      try {
+        const saved = JSON.parse(localStorage.getItem(storageKey) || "null");
+        const savedChapter = cs.findIndex((c) => c.id === saved?.chapterId);
+        if (savedChapter >= 0) {
+          const count = counts[savedChapter];
+          const local = Math.round(Math.max(0, Math.min(1, Number(saved.offset) || 0)) * Math.max(0, count - 1));
+          target = nextPages.findIndex((p) => p.chapterIndex === savedChapter && p.localPage === local);
+        }
+      } catch { /* Ignore invalid stored progress. */ }
+      target = Math.max(0, target);
+      if (metrics.double) target -= target % 2;
+      setPages(nextPages);
+      setPage(target);
+      lastChapter.current = nextPages[target]?.chapterIndex ?? value.index;
+      setReady(true);
+    };
+    paginate();
+    return () => { cancelled = true; };
+  }, [cs, flowHeight, flowWidth, metrics, storageKey, value.book.id]);
+
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "ArrowRight") { event.preventDefault(); startTurn(1); }
+      if (event.key === "ArrowLeft") { event.preventDefault(); startTurn(-1); }
+      if (event.key === "Escape") close();
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [close, startTurn]);
+
+  const renderPage = (index: number, extra = "") => {
+    const p = pages[index];
+    if (!p || !metrics) return <div className={`paper-page paper-empty ${extra}`} aria-hidden="true" />;
+    const chapter = cs[p.chapterIndex];
+    return (
+      <article className={`paper-page ${extra}`} aria-label={`Seite ${index + 1} von ${pages.length}`}>
+        <div className="page-content-window">
+          <div className="chapter-flow" style={{ width: flowWidth, height: flowHeight, columnWidth: flowWidth, transform: `translateX(-${p.localPage * flowWidth}px)` }}>
+            <header className="page-chapter-header">
+              <div className="eyebrow">KAPITEL {p.chapterIndex + 1} VON {cs.length}</div>
+              <h1>{chapter.title}</h1>
+              <div className="ornament">❦</div>
+            </header>
+            <div className="chapter-content" dangerouslySetInnerHTML={{ __html: chapter.content || "<p></p>" }} />
+          </div>
+        </div>
+        <span className="paper-page-number">{index + 1}</span>
+      </article>
+    );
+  };
+
+  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (turn || !ready) return;
+    dragStart.current = { x: event.clientX, time: performance.now() };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const start = dragStart.current;
+    if (!start || turn?.settling) return;
+    const delta = event.clientX - start.x;
+    if (Math.abs(delta) < 5) return;
+    const direction: 1 | -1 = turn?.direction ?? (delta < 0 ? 1 : -1);
+    if (!canMove(direction)) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const grabY = Math.max(.06, Math.min(.94, (event.clientY - rect.top) / rect.height));
+    setTurn({ direction, progress: Math.min(1, Math.abs(delta) / Math.max(180, metrics?.width || 1)), grabY, settling: false });
+  };
+  const onPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    const start = dragStart.current;
+    dragStart.current = null;
+    if (!start || !turn) return;
+    const velocity = Math.abs(event.clientX - start.x) / Math.max(1, performance.now() - start.time);
+    settleTurn(turn.direction, turn.progress > 0.28 || velocity > 0.55);
+  };
+
+  const baseLeft = !turn
+    ? page
+    : metrics?.double
+      ? (turn.direction === 1 ? page : page - 2)
+      : (turn.direction === 1 ? page + 1 : page - 1);
+  const baseRight = !turn
+    ? page + 1
+    : turn.direction === 1 ? page + 3 : page + 1;
+  const leafFront = turn
+    ? (metrics?.double ? (turn.direction === 1 ? page + 1 : page) : page)
+    : page;
+  const leafBack = turn
+    ? (metrics?.double ? (turn.direction === 1 ? page + 2 : page - 1) : (turn.direction === 1 ? page + 1 : page - 1))
+    : page;
+  const turnProgress = turn?.progress ?? 0;
+  const foldCenter = turn?.direction === -1 ? turnProgress * 100 : (1 - turnProgress) * 100;
+  const foldSlant = ((turn?.grabY ?? .5) - .5) * 42 * Math.sin(Math.PI * turnProgress);
+  const foldTop = Math.max(0, Math.min(100, foldCenter + foldSlant));
+  const foldBottom = Math.max(0, Math.min(100, foldCenter - foldSlant));
+  const pageSquash = 1 - Math.sin(Math.PI * turnProgress) * .14;
   return (
     <div className="reader">
       <div className="reader-toolbar">
         <button onClick={close}>
           <ChevronLeft /> Bibliothek
         </button>
-        <span>{value.book.title}</span>
+        <span>{value.book.title}<small>{ready ? `Seite ${Math.min(page + 1, pages.length)} von ${pages.length}` : "Seiten werden vorbereitet …"}</small></span>
         <button onClick={close}>
           <X />
         </button>
       </div>
-      <article className="reader-page">
-        <div className="eyebrow">
-          KAPITEL {value.index + 1} VON {cs.length}
-        </div>
-        <h1>{c.title}</h1>
-        <div
-          className="chapter-content"
-          dangerouslySetInnerHTML={{ __html: c.content }}
-        />
-        <div className="reader-page-foot">
-          <button
-            disabled={!value.index}
-            onClick={() => change(value.index - 1)}
-          >
-            <ChevronLeft /> Zurück
-          </button>
-          <button
-            disabled={value.index === cs.length - 1}
-            onClick={() => change(value.index + 1)}
-          >
-            Weiter <ChevronRight />
-          </button>
-        </div>
-      </article>
+      <div className="book-viewport" ref={viewport}>
+        {!ready || !metrics ? <div className="reader-loading">Das Buch wird aufgeschlagen …</div> : (
+          <>
+            <div
+              className={`book-shell ${metrics.double ? "book-double" : "book-single"} ${turn ? "is-turning" : ""} ${turn?.settling ? "is-settling" : ""}`}
+              style={{ width: metrics.width * visibleCount, height: metrics.height, "--turn": turnProgress, "--grab-y": `${(turn?.grabY ?? .5) * 100}%`, "--fold-top": `${foldTop}%`, "--fold-bottom": `${foldBottom}%`, "--page-squash": pageSquash, "--page-tilt": `${((turn?.grabY ?? .5) - .5) * Math.sin(Math.PI * turnProgress) * 5}deg`, "--page-pad-x": `${pagePaddingX}px`, "--page-pad-top": `${pagePaddingTop}px`, "--page-pad-bottom": `${pagePaddingBottom}px` } as React.CSSProperties}
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerUp}
+            >
+              {renderPage(baseLeft, "paper-left")}
+              {metrics.double && renderPage(baseRight, "paper-right")}
+              {turn && (
+                <div className={`turning-leaf turn-${turn.direction === 1 ? "forward" : "back"}`}>
+                  {renderPage(leafFront, `leaf-face leaf-front ${metrics.double && turn.direction === 1 ? "paper-right" : "paper-left"}`)}
+                  {renderPage(leafBack, `leaf-face leaf-back ${metrics.double && turn.direction === 1 ? "paper-left" : "paper-right"}`)}
+                  <span className="leaf-curl" />
+                  <span className="leaf-fold-edge" />
+                </div>
+              )}
+            </div>
+            <div className="reader-page-foot book-controls">
+              <button disabled={!canMove(-1) || !!turn} onClick={() => startTurn(-1)}><ChevronLeft /> Zurück</button>
+              <span>{Math.min(page + 1, pages.length)}–{Math.min(page + visibleCount, pages.length)} / {pages.length}</span>
+              <button disabled={!canMove(1) || !!turn} onClick={() => startTurn(1)}>Weiter <ChevronRight /></button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -460,7 +679,7 @@ function Personal({
     );
   }, []);
   return (
-    <main>
+    <main className="content-main">
       <div className="section-heading">
         <h2>
           {kind === "bookmarks" ? "Meine Lesezeichen" : "Lesefortschritt"}
@@ -490,7 +709,28 @@ function Admin({ note }: { note: (s: string) => void }) {
     [chapterFor, setChapterFor] = useState(""),
     [seriesEdit, setSeriesEdit] = useState(""),
     [bookEdit, setBookEdit] = useState(""),
-    [chapterEdit, setChapterEdit] = useState("");
+    [chapterEdit, setChapterEdit] = useState(""),
+    [showNewSeries, setShowNewSeries] = useState(false),
+    [openSeries, setOpenSeries] = useState<Set<string>>(new Set()),
+    [openBooks, setOpenBooks] = useState<Set<string>>(new Set());
+  const toggleSeries = (id: string) =>
+    setOpenSeries((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const expandSeries = (id: string) =>
+    setOpenSeries((current) => new Set(current).add(id));
+  const toggleBook = (id: string) =>
+    setOpenBooks((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const expandBook = (id: string) =>
+    setOpenBooks((current) => new Set(current).add(id));
   const refresh = () =>
     Promise.all([
       api<{ series: SeriesDto[] }>("/api/admin/series").then((x) =>
@@ -504,7 +744,7 @@ function Admin({ note }: { note: (s: string) => void }) {
     refresh();
   }, []);
   return (
-    <main>
+    <main className="content-main">
       <div className="section-heading">
         <h2>Bibliothek verwalten</h2>
         <div className="admin-tabs">
@@ -516,23 +756,50 @@ function Admin({ note }: { note: (s: string) => void }) {
       </div>
       {tab === "content" ? (
         <>
-          <SeriesForm saved={refresh} />
+          <button
+            className="admin-create-toggle"
+            type="button"
+            aria-expanded={showNewSeries}
+            onClick={() => setShowNewSeries((open) => !open)}
+          >
+            <Plus /> Neue Buchreihe
+            {showNewSeries ? <ChevronDown /> : <ChevronRight />}
+          </button>
+          {showNewSeries && (
+            <SeriesForm
+              saved={() => {
+                setShowNewSeries(false);
+                refresh();
+              }}
+            />
+          )}
           {data.map((s) => (
             <section className="admin-series" key={s.id}>
               <div className="admin-heading">
-                <div>
+                <button
+                  className="admin-series-toggle"
+                  type="button"
+                  aria-expanded={openSeries.has(s.id)}
+                  onClick={() => toggleSeries(s.id)}
+                >
+                  {openSeries.has(s.id) ? <ChevronDown /> : <ChevronRight />}
+                  <div>
                   <span className={"status " + s.status.toLowerCase()}>
                     {s.status === "PUBLISHED" ? "Veröffentlicht" : "Entwurf"}
                   </span>
                   <h2>{s.title}</h2>
-                </div>
-                <button onClick={() => setBookFor(s.id)}>
+                  </div>
+                </button>
+                <button onClick={() => { expandSeries(s.id); setBookFor(s.id); }}>
                   <Plus /> Buch
                 </button>
                 <button
                   aria-label="Reihe bearbeiten"
                   title="Reihe bearbeiten"
-                  onClick={() => setSeriesEdit(seriesEdit === s.id ? "" : s.id)}
+                  onClick={() => {
+                    expandSeries(s.id);
+                    setSeriesEdit(seriesEdit === s.id ? "" : s.id);
+                  }}
                 >
                   <Pencil />
                 </button>
@@ -546,7 +813,7 @@ function Admin({ note }: { note: (s: string) => void }) {
                   }}
                 />
               </div>
-              {seriesEdit === s.id && (
+              {openSeries.has(s.id) && seriesEdit === s.id && (
                 <SeriesForm
                   series={s}
                   cancel={() => setSeriesEdit("")}
@@ -556,7 +823,7 @@ function Admin({ note }: { note: (s: string) => void }) {
                   }}
                 />
               )}
-              {bookFor === s.id && (
+              {openSeries.has(s.id) && bookFor === s.id && (
                 <BookForm
                   id={s.id}
                   saved={() => {
@@ -565,18 +832,26 @@ function Admin({ note }: { note: (s: string) => void }) {
                   }}
                 />
               )}
-              {s.books.map((b) => (
+              {openSeries.has(s.id) && s.books.map((b) => (
                 <div className="admin-book" key={b.id}>
                   <div className="book-summary">
-                    {b.coverUrl ? <img src={b.coverUrl} /> : <BookOpen />}
-                    <div>
-                      <h3>
-                        Band {b.volumeNumber}: {b.title}
-                      </h3>
-                      <p>
-                        {b.status} · {b.chapters?.length || 0} Kapitel
-                      </p>
-                    </div>
+                    <button
+                      className="admin-book-toggle"
+                      type="button"
+                      aria-expanded={openBooks.has(b.id)}
+                      onClick={() => toggleBook(b.id)}
+                    >
+                      {openBooks.has(b.id) ? <ChevronDown /> : <ChevronRight />}
+                      {b.coverUrl ? <img src={b.coverUrl} /> : <BookOpen />}
+                      <div>
+                        <h3>
+                          Band {b.volumeNumber}: {b.title}
+                        </h3>
+                        <p>
+                          {b.status} · {b.chapters?.length || 0} Kapitel
+                        </p>
+                      </div>
+                    </button>
                     <label className="cover-upload">
                       Cover
                       <input
@@ -595,13 +870,16 @@ function Admin({ note }: { note: (s: string) => void }) {
                         }}
                       />
                     </label>
-                    <button onClick={() => setChapterFor(b.id)}>
+                    <button onClick={() => { expandBook(b.id); setChapterFor(b.id); }}>
                       <Plus /> Kapitel
                     </button>
                     <button
                       aria-label="Buch bearbeiten"
                       title="Buch bearbeiten"
-                      onClick={() => setBookEdit(bookEdit === b.id ? "" : b.id)}
+                      onClick={() => {
+                        expandBook(b.id);
+                        setBookEdit(bookEdit === b.id ? "" : b.id);
+                      }}
                     >
                       <Pencil />
                     </button>
@@ -615,7 +893,7 @@ function Admin({ note }: { note: (s: string) => void }) {
                       }}
                     />
                   </div>
-                  {bookEdit === b.id && (
+                  {openBooks.has(b.id) && bookEdit === b.id && (
                     <BookForm
                       id={s.id}
                       book={b}
@@ -626,7 +904,7 @@ function Admin({ note }: { note: (s: string) => void }) {
                       }}
                     />
                   )}
-                  {chapterFor === b.id && (
+                  {openBooks.has(b.id) && chapterFor === b.id && (
                     <ChapterForm
                       id={b.id}
                       next={(b.chapters?.length || 0) + 1}
@@ -636,7 +914,7 @@ function Admin({ note }: { note: (s: string) => void }) {
                       }}
                     />
                   )}
-                  {b.chapters?.map((c) => (
+                  {openBooks.has(b.id) && b.chapters?.map((c) => (
                     <React.Fragment key={c.id}>
                       <div className="chapter-row">
                         <b>{c.sortOrder}</b>
