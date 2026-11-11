@@ -30,3 +30,6 @@
 .danger-button:hover{color:#ef7770}
 .editor-toolbar button{border-color:#a38e5e66;background:#172119;color:#c6b282}
 .rich-editor{background:#111a13;border-color:#8a82544f;color:#e6dfc9}
+.form-actions{display:flex;align-items:center;gap:16px}
+.form-actions>button:not(.gold-button){padding:11px 14px;border:1px solid var(--line);border-radius:3px;color:#b8bdaf}
+.admin-heading>button svg,.book-summary>button svg,.chapter-row>button svg{width:18px;height:18px}

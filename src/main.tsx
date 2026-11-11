@@ -8,6 +8,7 @@ import {
   LogIn,
   LogOut,
   Plus,
+  Pencil,
   Trash2,
   X,
   ChevronLeft,
@@ -16,18 +17,18 @@ import {
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import type { BookDto, ChapterDto, SeriesDto, UserDto } from "../shared/types";
-import "./style.css";
+import "./style.css?theme=forest-v2";
 type Me = UserDto | null;
 type View = "library" | "bookmarks" | "progress" | "admin";
 async function api<T = any>(url: string, init?: RequestInit): Promise<T> {
+  const hasJsonBody = init?.body !== undefined && !(init.body instanceof FormData);
   const r = await fetch(url, {
+      ...init,
       credentials: "include",
       headers: {
-        ...(init?.body instanceof FormData
-          ? {}
-          : { "Content-Type": "application/json" }),
+        ...(hasJsonBody ? { "Content-Type": "application/json" } : {}),
+        ...init?.headers,
       },
-      ...init,
     }),
     b = await r.json().catch(() => ({}));
   if (!r.ok) throw Error(b.error?.message || "Anfrage fehlgeschlagen");
@@ -498,7 +499,10 @@ function Admin({ note }: { note: (s: string) => void }) {
     [users, setUsers] = useState<UserDto[]>([]),
     [tab, setTab] = useState<"content" | "users">("content"),
     [bookFor, setBookFor] = useState(""),
-    [chapterFor, setChapterFor] = useState("");
+    [chapterFor, setChapterFor] = useState(""),
+    [seriesEdit, setSeriesEdit] = useState(""),
+    [bookEdit, setBookEdit] = useState(""),
+    [chapterEdit, setChapterEdit] = useState("");
   const refresh = () =>
     Promise.all([
       api<{ series: SeriesDto[] }>("/api/admin/series").then((x) =>
@@ -537,6 +541,13 @@ function Admin({ note }: { note: (s: string) => void }) {
                 <button onClick={() => setBookFor(s.id)}>
                   <Plus /> Buch
                 </button>
+                <button
+                  aria-label="Reihe bearbeiten"
+                  title="Reihe bearbeiten"
+                  onClick={() => setSeriesEdit(seriesEdit === s.id ? "" : s.id)}
+                >
+                  <Pencil />
+                </button>
                 <Del
                   label="Reihe"
                   run={async () => {
@@ -547,6 +558,16 @@ function Admin({ note }: { note: (s: string) => void }) {
                   }}
                 />
               </div>
+              {seriesEdit === s.id && (
+                <SeriesForm
+                  series={s}
+                  cancel={() => setSeriesEdit("")}
+                  saved={() => {
+                    setSeriesEdit("");
+                    refresh();
+                  }}
+                />
+              )}
               {bookFor === s.id && (
                 <BookForm
                   id={s.id}
@@ -589,6 +610,13 @@ function Admin({ note }: { note: (s: string) => void }) {
                     <button onClick={() => setChapterFor(b.id)}>
                       <Plus /> Kapitel
                     </button>
+                    <button
+                      aria-label="Buch bearbeiten"
+                      title="Buch bearbeiten"
+                      onClick={() => setBookEdit(bookEdit === b.id ? "" : b.id)}
+                    >
+                      <Pencil />
+                    </button>
                     <Del
                       label="Buch"
                       run={async () => {
@@ -599,6 +627,17 @@ function Admin({ note }: { note: (s: string) => void }) {
                       }}
                     />
                   </div>
+                  {bookEdit === b.id && (
+                    <BookForm
+                      id={s.id}
+                      book={b}
+                      cancel={() => setBookEdit("")}
+                      saved={() => {
+                        setBookEdit("");
+                        refresh();
+                      }}
+                    />
+                  )}
                   {chapterFor === b.id && (
                     <ChapterForm
                       id={b.id}
@@ -610,21 +649,44 @@ function Admin({ note }: { note: (s: string) => void }) {
                     />
                   )}
                   {b.chapters?.map((c) => (
-                    <div className="chapter-row" key={c.id}>
-                      <b>{c.sortOrder}</b>
-                      <span>
-                        {c.title} · {c.status}
-                      </span>
-                      <Del
-                        label="Kapitel"
-                        run={async () => {
-                          await api("/api/admin/chapters/" + c.id, {
-                            method: "DELETE",
-                          });
-                          refresh();
-                        }}
-                      />
-                    </div>
+                    <React.Fragment key={c.id}>
+                      <div className="chapter-row">
+                        <b>{c.sortOrder}</b>
+                        <span>
+                          {c.title} · {c.status}
+                        </span>
+                        <button
+                          aria-label="Kapitel bearbeiten"
+                          title="Kapitel bearbeiten"
+                          onClick={() =>
+                            setChapterEdit(chapterEdit === c.id ? "" : c.id)
+                          }
+                        >
+                          <Pencil />
+                        </button>
+                        <Del
+                          label="Kapitel"
+                          run={async () => {
+                            await api("/api/admin/chapters/" + c.id, {
+                              method: "DELETE",
+                            });
+                            refresh();
+                          }}
+                        />
+                      </div>
+                      {chapterEdit === c.id && (
+                        <ChapterForm
+                          id={b.id}
+                          next={c.sortOrder}
+                          chapter={c}
+                          cancel={() => setChapterEdit("")}
+                          saved={() => {
+                            setChapterEdit("");
+                            refresh();
+                          }}
+                        />
+                      )}
+                    </React.Fragment>
                   ))}
                 </div>
               ))}
@@ -662,15 +724,23 @@ function Admin({ note }: { note: (s: string) => void }) {
   );
 }
 const get = (f: FormData, n: string) => f.get(n);
-function SeriesForm({ saved }: { saved: () => any }) {
+function SeriesForm({
+  saved,
+  series,
+  cancel,
+}: {
+  saved: () => any;
+  series?: SeriesDto;
+  cancel?: () => void;
+}) {
   return (
     <form
       className="admin-form"
       onSubmit={async (e) => {
         e.preventDefault();
         const f = new FormData(e.currentTarget);
-        await api("/api/admin/series", {
-          method: "POST",
+        await api("/api/admin/series" + (series ? "/" + series.id : ""), {
+          method: series ? "PUT" : "POST",
           body: JSON.stringify({
             title: get(f, "title"),
             genre: get(f, "genre"),
@@ -679,23 +749,23 @@ function SeriesForm({ saved }: { saved: () => any }) {
             sortOrder: 0,
           }),
         });
-        e.currentTarget.reset();
+        if (!series) e.currentTarget.reset();
         saved();
       }}
     >
-      <h3>Neue Buchreihe</h3>
+      <h3>{series ? "Buchreihe bearbeiten" : "Neue Buchreihe"}</h3>
       <div className="form-grid">
         <label>
           Titel
-          <input name="title" required />
+          <input name="title" defaultValue={series?.title} required />
         </label>
         <label>
           Genre
-          <input name="genre" required />
+          <input name="genre" defaultValue={series?.genre} />
         </label>
         <label>
           Status
-          <select name="status">
+          <select name="status" defaultValue={series?.status || "DRAFT"}>
             <option value="DRAFT">Entwurf</option>
             <option value="PUBLISHED">Veröffentlicht</option>
           </select>
@@ -703,27 +773,42 @@ function SeriesForm({ saved }: { saved: () => any }) {
       </div>
       <label>
         Beschreibung
-        <textarea name="description" required />
+        <textarea name="description" defaultValue={series?.description} />
       </label>
-      <button className="gold-button">Reihe anlegen</button>
+      <div className="form-actions">
+        <button className="gold-button">
+          {series ? "Änderungen speichern" : "Reihe anlegen"}
+        </button>
+        {cancel && <button type="button" onClick={cancel}>Abbrechen</button>}
+      </div>
     </form>
   );
 }
-function BookForm({ id, saved }: { id: string; saved: () => void }) {
+function BookForm({
+  id,
+  saved,
+  book,
+  cancel,
+}: {
+  id: string;
+  saved: () => void;
+  book?: BookDto;
+  cancel?: () => void;
+}) {
   return (
     <form
       className="nested-form"
       onSubmit={async (e) => {
         e.preventDefault();
         const f = new FormData(e.currentTarget);
-        await api("/api/admin/books", {
-          method: "POST",
+        await api("/api/admin/books" + (book ? "/" + book.id : ""), {
+          method: book ? "PUT" : "POST",
           body: JSON.stringify({
             seriesId: id,
             title: get(f, "title"),
             subtitle: get(f, "subtitle") || null,
             description: get(f, "description"),
-            volumeNumber: Number(get(f, "volume")),
+            ...(get(f, "volume") ? { volumeNumber: Number(get(f, "volume")) } : {}),
             sortOrder: 0,
             status: get(f, "status"),
           }),
@@ -731,23 +816,23 @@ function BookForm({ id, saved }: { id: string; saved: () => void }) {
         saved();
       }}
     >
-      <h3>Neues Buch</h3>
+      <h3>{book ? "Buch bearbeiten" : "Neues Buch"}</h3>
       <div className="form-grid">
         <label>
           Titel
-          <input name="title" required />
+          <input name="title" defaultValue={book?.title} required />
         </label>
         <label>
           Untertitel
-          <input name="subtitle" />
+          <input name="subtitle" defaultValue={book?.subtitle || ""} />
         </label>
         <label>
           Band
-          <input name="volume" type="number" min="1" required />
+          <input name="volume" type="number" min="1" defaultValue={book?.volumeNumber} placeholder="wird automatisch vergeben" />
         </label>
         <label>
           Status
-          <select name="status">
+          <select name="status" defaultValue={book?.status || "DRAFT"}>
             <option value="DRAFT">Entwurf</option>
             <option value="PUBLISHED">Veröffentlicht</option>
           </select>
@@ -755,9 +840,12 @@ function BookForm({ id, saved }: { id: string; saved: () => void }) {
       </div>
       <label>
         Beschreibung
-        <textarea name="description" required />
+        <textarea name="description" defaultValue={book?.description} />
       </label>
-      <button>Buch anlegen</button>
+      <div className="form-actions">
+        <button>{book ? "Änderungen speichern" : "Buch anlegen"}</button>
+        {cancel && <button type="button" onClick={cancel}>Abbrechen</button>}
+      </div>
     </form>
   );
 }
@@ -765,10 +853,14 @@ function ChapterForm({
   id,
   next,
   saved,
+  chapter,
+  cancel,
 }: {
   id: string;
   next: number;
   saved: () => void;
+  chapter?: ChapterDto;
+  cancel?: () => void;
 }) {
   const editor = useRef<HTMLDivElement>(null);
   return (
@@ -777,8 +869,8 @@ function ChapterForm({
       onSubmit={async (e) => {
         e.preventDefault();
         const f = new FormData(e.currentTarget);
-        await api("/api/admin/chapters", {
-          method: "POST",
+        await api("/api/admin/chapters" + (chapter ? "/" + chapter.id : ""), {
+          method: chapter ? "PUT" : "POST",
           body: JSON.stringify({
             bookId: id,
             title: get(f, "title"),
@@ -790,19 +882,19 @@ function ChapterForm({
         saved();
       }}
     >
-      <h3>Neues Kapitel</h3>
+      <h3>{chapter ? "Kapitel bearbeiten" : "Neues Kapitel"}</h3>
       <div className="form-grid">
         <label>
           Titel
-          <input name="title" required />
+          <input name="title" defaultValue={chapter?.title} required />
         </label>
         <label>
           Nummer
-          <input name="order" type="number" min="1" defaultValue={next} />
+          <input name="order" type="number" min="0" defaultValue={chapter?.sortOrder ?? next} />
         </label>
         <label>
           Status
-          <select name="status">
+          <select name="status" defaultValue={chapter?.status || "DRAFT"}>
             <option value="DRAFT">Entwurf</option>
             <option value="PUBLISHED">Veröffentlicht</option>
           </select>
@@ -822,8 +914,16 @@ function ChapterForm({
           Liste
         </button>
       </div>
-      <div className="rich-editor" contentEditable ref={editor} />
-      <button>Kapitel anlegen</button>
+      <div
+        className="rich-editor"
+        contentEditable
+        ref={editor}
+        dangerouslySetInnerHTML={chapter ? { __html: chapter.content } : undefined}
+      />
+      <div className="form-actions">
+        <button>{chapter ? "Änderungen speichern" : "Kapitel anlegen"}</button>
+        {cancel && <button type="button" onClick={cancel}>Abbrechen</button>}
+      </div>
     </form>
   );
 }

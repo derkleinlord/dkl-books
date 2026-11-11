@@ -15,9 +15,9 @@ import {config} from './config.js';
 import {cleanRichText,publicUser} from './security.js';
 
 type AuthUser={id:string;name:string;username:string;role:Role;active:boolean};
-const seriesInput=z.object({title:z.string().trim().min(1).max(160),description:z.string().trim().min(1),genre:z.string().trim().min(1).max(120),status:z.nativeEnum(PublishStatus).default('DRAFT'),sortOrder:z.number().int().min(0).default(0)});
-const bookInput=z.object({seriesId:z.string().uuid(),title:z.string().trim().min(1).max(160),subtitle:z.string().trim().max(200).nullable().optional(),description:z.string().trim().min(1),volumeNumber:z.number().int().positive(),sortOrder:z.number().int().min(0).default(0),status:z.nativeEnum(PublishStatus).default('DRAFT')});
-const chapterInput=z.object({bookId:z.string().uuid(),title:z.string().trim().min(1).max(200),content:z.string(),sortOrder:z.number().int().positive(),status:z.nativeEnum(PublishStatus).default('DRAFT')});
+const seriesInput=z.object({title:z.string().trim().min(1).max(160),description:z.string().trim().default(''),genre:z.string().trim().max(120).default(''),status:z.nativeEnum(PublishStatus).default('DRAFT'),sortOrder:z.number().int().min(0).default(0)});
+const bookInput=z.object({seriesId:z.string().uuid(),title:z.string().trim().min(1).max(160),subtitle:z.string().trim().max(200).nullable().optional(),description:z.string().trim().default(''),volumeNumber:z.number().int().positive().optional(),sortOrder:z.number().int().min(0).default(0),status:z.nativeEnum(PublishStatus).default('DRAFT')});
+const chapterInput=z.object({bookId:z.string().uuid(),title:z.string().trim().min(1).max(200),content:z.string(),sortOrder:z.number().int().min(0),status:z.nativeEnum(PublishStatus).default('DRAFT')});
 const userInput=z.object({name:z.string().trim().min(1).max(120),username:z.string().trim().min(3).max(80).regex(/^[a-zA-Z0-9._-]+$/).transform(x=>x.toLowerCase()),password:z.string().min(10).max(128),role:z.nativeEnum(Role).default('READER'),active:z.boolean().default(true)});
 
 export function buildApp(prisma=new PrismaClient()){
@@ -37,7 +37,17 @@ export function buildApp(prisma=new PrismaClient()){
   const coverUrl=(book:{coverPath:string|null})=>book.coverPath?`/uploads/${path.basename(book.coverPath)}`:null;
   const mapBook=<T extends {coverPath:string|null}>(b:T)=>({...b,coverUrl:coverUrl(b),coverPath:undefined,coverMimeType:undefined,coverOriginalName:undefined});
 
-  app.setErrorHandler((err,_,reply)=>{if(err instanceof ZodError)return fail(reply,400,'VALIDATION_ERROR','Eingaben sind ungültig.',z.flattenError(err).fieldErrors as Record<string,string[]>);if(err instanceof Prisma.PrismaClientKnownRequestError){if(err.code==='P2002')return fail(reply,409,'CONFLICT','Dieser Wert oder diese Reihenfolge wird bereits verwendet.');if(err.code==='P2025')return fail(reply,404,'NOT_FOUND','Eintrag nicht gefunden.')}app.log.error(err);return fail(reply,500,'INTERNAL_ERROR','Ein unerwarteter Fehler ist aufgetreten.')});
+  app.setErrorHandler((err,_,reply)=>{
+    if(err instanceof ZodError)return fail(reply,400,'VALIDATION_ERROR','Eingaben sind ungültig.',z.flattenError(err).fieldErrors as Record<string,string[]>);
+    if(err instanceof Prisma.PrismaClientKnownRequestError){
+      if(err.code==='P2002')return fail(reply,409,'CONFLICT','Dieser Wert oder diese Reihenfolge wird bereits verwendet.');
+      if(err.code==='P2025')return fail(reply,404,'NOT_FOUND','Eintrag nicht gefunden.');
+    }
+    const httpError=err as {statusCode?:unknown;message?:unknown};
+    if(typeof httpError.statusCode==='number'&&httpError.statusCode<500)return fail(reply,httpError.statusCode,'BAD_REQUEST',typeof httpError.message==='string'?httpError.message:'Ungültige Anfrage.');
+    app.log.error(err);
+    return fail(reply,500,'INTERNAL_ERROR','Ein unerwarteter Fehler ist aufgetreten.');
+  });
   app.get('/api/health',async()=>({status:'ok'}));
   app.post('/api/auth/login',async(req,reply)=>{const body=z.object({username:z.string().min(1),password:z.string().min(1)}).parse(req.body);const user=await prisma.user.findUnique({where:{username:body.username.toLowerCase()}});if(!user||!user.active||!await argon2.verify(user.passwordHash,body.password))return fail(reply,401,'INVALID_CREDENTIALS','Benutzername oder Passwort ist falsch.');const session=await prisma.session.create({data:{userId:user.id,expiresAt:new Date(Date.now()+30*864e5)}});reply.setCookie('dkl_session',session.id,{path:'/',httpOnly:true,sameSite:'lax',secure:cfg.COOKIE_SECURE,signed:true,maxAge:30*86400});return {user:publicUser(user)}});
   app.post('/api/auth/logout',async(req,reply)=>{const raw=req.cookies.dkl_session;reply.clearCookie('dkl_session',{path:'/',httpOnly:true,sameSite:'lax',secure:cfg.COOKIE_SECURE});if(raw){const p=req.unsignCookie(raw);if(p.valid)await prisma.session.deleteMany({where:{id:p.value}}).catch(err=>app.log.error(err))}return {ok:true}});
@@ -56,9 +66,24 @@ export function buildApp(prisma=new PrismaClient()){
   app.post('/api/admin/series',async(req,reply)=>{if(!await auth(req,reply,true))return;return {series:await prisma.series.create({data:seriesInput.parse(req.body)})}});
   app.put('/api/admin/series/:id',async(req,reply)=>{if(!await auth(req,reply,true))return;return {series:await prisma.series.update({where:{id:params(req)},data:seriesInput.partial().parse(req.body)})}});
   app.delete('/api/admin/series/:id',async(req,reply)=>{if(!await auth(req,reply,true))return;await prisma.series.delete({where:{id:params(req)}});return {ok:true}});
-  app.post('/api/admin/books',async(req,reply)=>{if(!await auth(req,reply,true))return;return {book:mapBook(await prisma.book.create({data:bookInput.parse(req.body)}))}});
+  app.post('/api/admin/books',async(req,reply)=>{if(!await auth(req,reply,true))return;const data=bookInput.parse(req.body);const volumeNumber=data.volumeNumber??((await prisma.book.aggregate({where:{seriesId:data.seriesId},_max:{volumeNumber:true}}))._max.volumeNumber??0)+1;return {book:mapBook(await prisma.book.create({data:{...data,volumeNumber}}))}});
   app.put('/api/admin/books/:id',async(req,reply)=>{if(!await auth(req,reply,true))return;return {book:mapBook(await prisma.book.update({where:{id:params(req)},data:bookInput.partial().parse(req.body)}))}});
-  app.delete('/api/admin/books/:id',async(req,reply)=>{if(!await auth(req,reply,true))return;const book=await prisma.book.delete({where:{id:params(req)}});if(book.coverPath)await unlink(book.coverPath).catch(()=>{});return {ok:true}});
+  app.delete('/api/admin/books/:id',async(req,reply)=>{
+    if(!await auth(req,reply,true))return;
+    const id=params(req);
+    // Delete dependants explicitly. This also works against databases whose
+    // foreign keys predate the cascade rules in the current Prisma schema.
+    const book=await prisma.$transaction(async tx=>{
+      const existing=await tx.book.findUniqueOrThrow({where:{id}});
+      await tx.readingProgress.deleteMany({where:{bookId:id}});
+      await tx.bookmark.deleteMany({where:{bookId:id}});
+      await tx.chapter.deleteMany({where:{bookId:id}});
+      await tx.book.delete({where:{id}});
+      return existing;
+    });
+    if(book.coverPath)await unlink(book.coverPath).catch(err=>app.log.warn({err,bookId:id},'Could not delete book cover'));
+    return {ok:true};
+  });
   app.post('/api/admin/chapters',async(req,reply)=>{if(!await auth(req,reply,true))return;const data=chapterInput.parse(req.body);return {chapter:await prisma.chapter.create({data:{...data,content:cleanRichText(data.content)}})}});
   app.put('/api/admin/chapters/:id',async(req,reply)=>{if(!await auth(req,reply,true))return;const data=chapterInput.partial().parse(req.body);return {chapter:await prisma.chapter.update({where:{id:params(req)},data:{...data,...(data.content!==undefined&&{content:cleanRichText(data.content)})}})}});
   app.delete('/api/admin/chapters/:id',async(req,reply)=>{if(!await auth(req,reply,true))return;await prisma.chapter.delete({where:{id:params(req)}});return {ok:true}});

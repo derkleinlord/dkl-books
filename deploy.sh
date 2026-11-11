@@ -57,6 +57,7 @@ echo "[3/8] Datenbankmigrationen ausführen"
 npm run db:migrate
 
 echo "[4/8] Produktions-Build erstellen"
+rm -rf "${PROJECT_ROOT}/dist"
 npm run build
 
 echo "[5/8] Frontend-Build prüfen"
