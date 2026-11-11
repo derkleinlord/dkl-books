@@ -3,7 +3,7 @@ import 'dotenv/config';
 import {z} from 'zod';
 
 const schema=z.object({
-  PORT:z.coerce.number().int().positive().default(4000), HOST:z.string().default('0.0.0.0'),
+  PORT:z.coerce.number().int().positive().default(4300), HOST:z.string().default('0.0.0.0'),
   CORS_ORIGIN:z.string().url().default('http://localhost:5173'), COOKIE_SECRET:z.string().min(32),
   COOKIE_SECURE:z.enum(['true','false']).default('false'), UPLOAD_DIR:z.string().default('./uploads'),
   MAX_UPLOAD_BYTES:z.coerce.number().positive().default(5_242_880), NODE_ENV:z.string().default('development'),

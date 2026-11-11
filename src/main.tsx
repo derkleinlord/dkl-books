@@ -96,6 +96,24 @@ function App() {
         body: JSON.stringify({ chapterId: full.chapters[i].id }),
       });
   }
+  async function logout() {
+    try {
+      await api("/api/auth/logout", { method: "POST" });
+    } catch {
+      note("Die Sitzung wurde lokal beendet.");
+    } finally {
+      setMe(null);
+      setView("library");
+      setSelected(null);
+      setReader(null);
+      setSeries((items) =>
+        items.map((s) => ({
+          ...s,
+          books: s.books.map((b) => ({ ...b, bookmarked: false })),
+        })),
+      );
+    }
+  }
   return (
     <>
       <header>
@@ -124,10 +142,10 @@ function App() {
             <>
               <b>{me.name}</b>
               <button
-                onClick={async () => {
-                  await api("/api/auth/logout", { method: "POST" });
-                  setMe(null);
-                }}
+                type="button"
+                aria-label="Abmelden"
+                title="Abmelden"
+                onClick={logout}
               >
                 <LogOut />
               </button>
@@ -162,6 +180,8 @@ function App() {
               <label className="inline-search">
                 <Search />
                 <input
+                  type="search"
+                  aria-label="Bücher durchsuchen"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Suchen …"

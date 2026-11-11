@@ -15,7 +15,7 @@ npm run bootstrap:admin
 npm run dev
 ```
 
-Die öffentliche Adresse ist `https://books.dkl-lab.de`; in der Beispielkonfiguration läuft die interne API auf Port `4000`. MariaDB läuft lokal auf `127.0.0.1:3306`; die Datenbank startet ohne Buchinhalte. Für die Anmeldung werden ausschließlich Benutzername und Passwort verwendet, keine E-Mail-Adresse.
+Die öffentliche Adresse ist `https://books.dkl-lab.de`; in der Beispielkonfiguration läuft die interne API auf Port `4300`. MariaDB läuft lokal auf `127.0.0.1:3306`; die Datenbank startet ohne Buchinhalte. Für die Anmeldung werden ausschließlich Benutzername und Passwort verwendet, keine E-Mail-Adresse.
 
 ## Lokale MariaDB einrichten
 
@@ -56,6 +56,18 @@ Im lokalen Betrieb bleiben MariaDB und die API auf demselben Server. MariaDB sol
 
 Passwörter werden mit Argon2 gehasht. Rich-Text wird serverseitig auf sichere Formatierungen reduziert. Cover akzeptieren JPG, PNG und WebP bis standardmäßig 5 MiB.
 
+## Deployment
+
+Nach dem Anlegen von `/var/www/dkl-books/.env` kann das vollständige Deployment als root ausgeführt werden:
+
+```sh
+cd /var/www/dkl-books
+chmod +x deploy.sh
+sudo ./deploy.sh
+```
+
+Das Skript installiert reproduzierbar die Node-Abhängigkeiten, generiert Prisma, führt Migrationen aus, baut das Frontend, installiert die systemd- und Nginx-Konfiguration, startet `dkl-books.service` neu und prüft abschließend `/api/health` auf Port 4300.
+
 ## Nginx
 
-Eine vollständige Konfiguration für `books.dkl-lab.de` liegt unter `deploy/nginx/books.dkl-lab.de.conf`. Sie erwartet den Produktions-Build in `/var/www/dkl-books/dist`, leitet `/api` und `/uploads` an `127.0.0.1:4000` weiter und verwendet Let's-Encrypt-Zertifikate.
+Eine vollständige Konfiguration für `books.dkl-lab.de` liegt unter `deploy/nginx/books.dkl-lab.de.conf`. Sie liefert den Vite-Produktions-Build direkt aus `/var/www/dkl-books/dist/` aus und leitet `/api` sowie `/uploads` an `127.0.0.1:4300` weiter. Der Origin lauscht nur über HTTP auf Port 80; HTTPS wird durch den vorgeschalteten Cloud-Proxy bereitgestellt.
