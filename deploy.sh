@@ -5,22 +5,46 @@ PROJECT_ROOT="/var/www/dkl-books"
 SERVICE_NAME="dkl-books"
 NGINX_SITE="books.dkl-lab.de"
 HEALTH_URL="http://127.0.0.1:4300/api/health"
+DEPLOY_LOG="${PROJECT_ROOT}/deploy.log"
+
+mkdir -p "${PROJECT_ROOT}"
+touch "${DEPLOY_LOG}"
+chmod 644 "${DEPLOY_LOG}"
+exec > >(tee -a "${DEPLOY_LOG}") 2>&1
+
+on_error() {
+  local exit_code=$?
+  local line_number=${BASH_LINENO[0]:-unknown}
+  echo
+  echo "Deployment fehlgeschlagen (Exit-Code ${exit_code}, Zeile ${line_number})."
+  echo "Vollständiges Protokoll: ${DEPLOY_LOG}"
+  echo
+  if [[ -t 0 ]]; then
+    read -r -p "Enter drücken, um dieses Fenster zu schließen ..." _
+  fi
+  exit "${exit_code}"
+}
+
+trap on_error ERR
+
+echo
+echo "=== Deployment $(date --iso-8601=seconds) ==="
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Bitte als root ausführen: sudo ${PROJECT_ROOT}/deploy.sh"
-  exit 1
+  false
 fi
 
 cd "${PROJECT_ROOT}"
 
 if [[ ! -f .env ]]; then
   echo "Fehler: ${PROJECT_ROOT}/.env fehlt."
-  exit 1
+  false
 fi
 
 if [[ ! -f package-lock.json ]]; then
   echo "Fehler: package-lock.json fehlt."
-  exit 1
+  false
 fi
 
 echo "[1/8] Abhängigkeiten installieren"
@@ -66,4 +90,4 @@ done
 echo "Fehler: API ist nach dem Neustart nicht erreichbar."
 systemctl status "${SERVICE_NAME}.service" --no-pager || true
 journalctl -u "${SERVICE_NAME}.service" -n 50 --no-pager || true
-exit 1
+false

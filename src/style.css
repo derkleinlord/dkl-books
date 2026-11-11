@@ -7,3 +7,26 @@
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
 .mobile-library-nav{display:none}@media(max-width:760px){.mobile-library-nav{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--line);padding-top:10px}.mobile-library-nav button{font-size:11px}}
 .login-button,.admin-tabs button{display:flex;align-items:center;gap:7px}.user-name{font:600 13px Arial}.inline-search{width:min(260px,100%);height:44px;display:flex;align-items:center;gap:10px;padding:0 14px;border:1px solid #b69a5a55;border-radius:4px;background:#111a13;color:#c6a66b;cursor:text;transition:border-color .2s,box-shadow .2s,background .2s}.inline-search:hover{border-color:#c6a66b88;background:#141f16}.inline-search:focus-within{border-color:#c6a66b;box-shadow:0 0 0 3px #c6a66b18}.inline-search svg{width:17px;height:17px;flex:0 0 auto}.inline-search input{min-width:0;height:100%;margin:0;padding:0;border:0;border-radius:0;outline:0;background:transparent;color:#e6dfc9;font-size:12px}.inline-search input::placeholder{color:#7f8879;opacity:1}.inline-search input::-webkit-search-cancel-button{filter:sepia(1);opacity:.6}.book-cover{padding:0;border:0;width:100%;overflow:hidden}.book-cover img{width:100%;height:100%;object-fit:cover}.detail-cover{width:180px;max-height:250px;object-fit:cover;float:left;margin:0 24px 16px 0}.login-modal{max-width:440px}.login-modal label{display:grid;gap:7px;margin:16px 0}.login-modal input,.admin-form input,.admin-form select,.nested-form input,.nested-form select{padding:12px;border:1px solid #cfc7b7}.form-error{color:#a3312d}.admin-tabs{display:flex;gap:8px}.admin-tabs button{padding:10px 15px;border:1px solid #ccc3ae}.admin-series{border:1px solid #d7d0c0;background:#fff;margin:25px 0;padding:24px}.admin-heading,.book-summary{display:flex;align-items:center;gap:16px}.admin-heading>div:first-child,.book-summary>div{flex:1}.status{font:700 10px Arial;padding:4px 7px;border-radius:10px}.status.published{background:#dcebdc;color:#245d2c}.status.draft{background:#eee8dd;color:#786a4a}.admin-book{border-top:1px solid #e1dbcf;padding:18px 0}.book-summary>img{width:54px;height:72px;object-fit:cover}.cover-upload{border:1px solid #c8c0ad;padding:9px;cursor:pointer}.cover-upload input{display:none}.nested-form{background:#f6f2e9;padding:20px;margin:12px 0;display:grid;gap:14px}.chapter-row{display:flex;align-items:center;gap:16px;padding:10px 16px;background:#f8f6f0}.chapter-row span{flex:1}.danger-button{color:#9d342f}.editor-toolbar{display:flex;gap:4px}.editor-toolbar button{border:1px solid #c8c0ad;padding:7px;background:white}.rich-editor{min-height:220px;background:#fff;border:1px solid #c8c0ad;padding:18px}.chapter-content{line-height:1.85}.chapter-content blockquote{border-left:3px solid #b89757;padding-left:20px}@media(max-width:760px){.section-heading{align-items:flex-start;flex-wrap:wrap}.inline-search{width:100%}.admin-heading,.book-summary{flex-wrap:wrap}.detail-cover{float:none}.user-name{display:none}}
+
+/* Admin surfaces use the same forest-and-gold palette as the library. */
+.login-modal input,.admin-form input,.admin-form select,.nested-form input,.nested-form select{border-color:#8a82544f}
+.form-error{color:#df7770}
+.admin-tabs button{border-color:var(--line);border-radius:3px;color:#b8bdaf}
+.admin-tabs button:hover{background:#c6a66b12;border-color:#c6a66b66;color:#e1c28c}
+.admin-series{border-color:var(--line);background:linear-gradient(135deg,#1a241b,#151d16);border-radius:4px;box-shadow:0 12px 30px #080c0826}
+.admin-heading h2,.book-summary h3{color:#e5dcc6}
+.book-summary p{color:#8f9786}
+.status.published{background:#66845c24;border:1px solid #78946b45;color:#a9c69b}
+.status.draft{background:#c6a66b18;border:1px solid #c6a66b38;color:#cdb783}
+.admin-book{border-color:var(--line)}
+.book-summary>img{border:1px solid #c6a66b45}
+.book-summary>svg{color:var(--gold)}
+.cover-upload{border-color:#a38e5e66;border-radius:3px;color:#c6b282}
+.cover-upload:hover{background:#c6a66b12;border-color:#c6a66b88}
+.nested-form{background:#101812;border:1px solid var(--line)}
+.chapter-row{background:#c6a66b0a;border-top:1px solid var(--line);color:#aeb6a5}
+.chapter-row b{color:var(--gold)}
+.danger-button{color:#c85b54}
+.danger-button:hover{color:#ef7770}
+.editor-toolbar button{border-color:#a38e5e66;background:#172119;color:#c6b282}
+.rich-editor{background:#111a13;border-color:#8a82544f;color:#e6dfc9}
