@@ -66,7 +66,11 @@ function App() {
     [view, setView] = useState<View>(initialRoute.view),
     [query, setQuery] = useState(""),
     [selected, setSelected] = useState<BookDto | null>(null),
-    [reader, setReader] = useState<{ book: BookDto; index: number } | null>(
+    [reader, setReader] = useState<{
+      book: BookDto;
+      index: number;
+      resume?: boolean;
+    } | null>(
       null,
     ),
     [login, setLogin] = useState(false),
@@ -228,7 +232,7 @@ function App() {
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [selected]);
-  async function read(b: BookDto, i?: number) {
+  async function read(b: BookDto, chapterId?: string, resume = false) {
     const full = b.chapters
       ? b
       : (await api<{ book: BookDto }>("/api/library/books/" + b.id)).book;
@@ -244,9 +248,12 @@ function App() {
     if (window.location.pathname !== readerPath)
       history.pushState(null, "", readerPath);
     setSelected(null);
-    const startIndex = i ?? 0;
-    setReader({ book: full, index: startIndex });
-    if (me && i === undefined)
+    const requestedIndex = chapterId
+      ? full.chapters.findIndex((chapter) => chapter.id === chapterId)
+      : 0;
+    const startIndex = Math.max(0, requestedIndex);
+    setReader({ book: full, index: startIndex, resume });
+    if (me && !resume)
       api("/api/me/progress/" + full.id, {
         method: "PUT",
         body: JSON.stringify({ chapterId: full.chapters[startIndex].id }),
@@ -415,12 +422,12 @@ function App() {
               </div>
             </div>
             <div className="chapter-list">
-              {selected.chapters?.map((c, i) => (
+              {selected.chapters?.map((c) => (
                 <div className="volume" key={c.id}>
                   <h3>{c.title}</h3>
                   <button
                     className="gold-button"
-                    onClick={() => read(selected, i)}
+                    onClick={() => read(selected, c.id)}
                   >
                     Lesen
                   </button>
@@ -440,7 +447,7 @@ function App() {
             if (window.location.pathname.endsWith("/lesen")) history.back();
           }}
           change={(i) => {
-            setReader({ ...reader, index: i });
+            setReader({ ...reader, index: i, resume: false });
             if (me)
               api("/api/me/progress/" + reader.book.id, {
                 method: "PUT",
@@ -588,7 +595,7 @@ function Reader({
   close,
   change,
 }: {
-  value: { book: BookDto; index: number };
+  value: { book: BookDto; index: number; resume?: boolean };
   me: Me;
   close: () => void;
   change: (i: number) => void;
@@ -715,7 +722,7 @@ function Reader({
       try {
         const saved = JSON.parse(localStorage.getItem(storageKey) || "null");
         const savedChapter = cs.findIndex((c) => c.id === saved?.chapterId);
-        if (value.index === 0 && savedChapter >= 0) {
+        if (value.resume && savedChapter === value.index) {
           const count = counts[savedChapter];
           const local = Math.round(Math.max(0, Math.min(1, Number(saved.offset) || 0)) * Math.max(0, count - 1));
           target = nextPages.findIndex((p) => p.chapterIndex === savedChapter && p.localPage === local);
@@ -856,7 +863,7 @@ function Personal({
   read,
 }: {
   kind: "bookmarks" | "progress";
-  read: (b: BookDto) => void;
+  read: (b: BookDto, chapterId?: string, resume?: boolean) => void;
 }) {
   const [rows, setRows] = useState<any[]>([]);
   useEffect(() => {
@@ -880,7 +887,17 @@ function Personal({
               <h3>{b.title}</h3>
               <p>{kind === "progress" ? r.chapter.title : b.description}</p>
             </div>
-            <button onClick={() => read(b)}>Lesen</button>
+            <button
+              onClick={() =>
+                read(
+                  b,
+                  kind === "progress" ? r.chapter.id : undefined,
+                  kind === "progress",
+                )
+              }
+            >
+              {kind === "progress" ? "Weiterlesen" : "Lesen"}
+            </button>
           </div>
         );
       })}

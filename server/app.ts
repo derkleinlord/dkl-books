@@ -15,10 +15,35 @@ import {config} from './config.js';
 import {cleanRichText,publicUser} from './security.js';
 
 type AuthUser={id:string;name:string;username:string;role:Role;active:boolean};
+type SearchableBook={title:string;volumeNumber:number};
+type SearchableSeries<T extends SearchableBook>={title:string;books:T[]};
 const seriesInput=z.object({title:z.string().trim().min(1).max(160),description:z.string().trim().default(''),genre:z.string().trim().max(120).default(''),status:z.nativeEnum(PublishStatus).default('DRAFT'),sortOrder:z.number().int().min(0).default(0)});
 const bookInput=z.object({seriesId:z.string().uuid(),title:z.string().trim().min(1).max(160),subtitle:z.string().trim().max(200).nullable().optional(),description:z.string().trim().default(''),volumeNumber:z.number().int().positive().optional(),sortOrder:z.number().int().min(0).default(0),status:z.nativeEnum(PublishStatus).default('DRAFT')});
 const chapterInput=z.object({bookId:z.string().uuid(),title:z.string().trim().min(1).max(200),content:z.string(),sortOrder:z.number().int().min(0)});
 const userInput=z.object({name:z.string().trim().min(1).max(120),username:z.string().trim().min(3).max(80).regex(/^[a-zA-Z0-9._-]+$/).transform(x=>x.toLowerCase()),password:z.string().min(10).max(128),role:z.nativeEnum(Role).default('READER'),active:z.boolean().default(true)});
+
+function romanToNumber(value:string){
+  const digits:{[key:string]:number}={I:1,V:5,X:10,L:50,C:100,D:500,M:1000};
+  let result=0;
+  for(let i=0;i<value.length;i++)result+=(digits[value[i]]??0)<(digits[value[i+1]]??0)?-(digits[value[i]]??0):(digits[value[i]]??0);
+  return result;
+}
+function searchedVolume(query:string){
+  const match=query.match(/^(?:band\s*)?(\d+|[ivxlcdm]+)$/i);
+  if(!match)return;
+  return /^\d+$/.test(match[1])?Number(match[1]):romanToNumber(match[1].toUpperCase());
+}
+export function filterLibrary<T extends SearchableBook,S extends SearchableSeries<T>>(items:S[],rawQuery?:string){
+  const query=rawQuery?.trim().toLocaleLowerCase('de');
+  if(!query)return items;
+  const volume=searchedVolume(query);
+  return items.flatMap(series=>{
+    const books=series.title.toLocaleLowerCase('de').includes(query)
+      ? series.books
+      : series.books.filter(book=>book.title.toLocaleLowerCase('de').includes(query)||book.volumeNumber===volume);
+    return books.length?[{...series,books}]:[];
+  });
+}
 
 export function buildApp(prisma=new PrismaClient()){
   const cfg=config();const app=Fastify({logger:cfg.NODE_ENV!=='test'});
@@ -53,7 +78,7 @@ export function buildApp(prisma=new PrismaClient()){
   app.post('/api/auth/logout',async(req,reply)=>{const raw=req.cookies.dkl_session;reply.clearCookie('dkl_session',{path:'/',httpOnly:true,sameSite:'lax',secure:cfg.COOKIE_SECURE});if(raw){const p=req.unsignCookie(raw);if(p.valid)await prisma.session.deleteMany({where:{id:p.value}}).catch(err=>app.log.error(err))}return {ok:true}});
   app.get('/api/auth/me',async(req,reply)=>{const user=await auth(req,reply);if(!user)return;return {user}});
 
-  app.get('/api/library',async(req)=>{const q=z.object({q:z.string().optional()}).parse(req.query).q?.trim();const items=await prisma.series.findMany({where:{status:'PUBLISHED',...(q&&{OR:[{title:{contains:q}},{description:{contains:q}},{genre:{contains:q}},{books:{some:{OR:[{title:{contains:q}},{description:{contains:q}}]}}}]})},include:{books:{where:{status:'PUBLISHED'},orderBy:[{sortOrder:'asc'},{volumeNumber:'asc'}],include:{chapters:{orderBy:{sortOrder:'asc'}}}}},orderBy:[{sortOrder:'asc'},{title:'asc'}]});return {series:items.map(s=>({...s,books:s.books.map(mapBook)}))}});
+  app.get('/api/library',async(req)=>{const q=z.object({q:z.string().optional()}).parse(req.query).q;const items=await prisma.series.findMany({where:{status:'PUBLISHED'},include:{books:{where:{status:'PUBLISHED'},orderBy:[{sortOrder:'asc'},{volumeNumber:'asc'}],include:{chapters:{orderBy:{sortOrder:'asc'}}}}},orderBy:[{sortOrder:'asc'},{title:'asc'}]});return {series:filterLibrary(items,q).map(s=>({...s,books:s.books.map(mapBook)}))}});
   app.get('/api/library/books/:id',async(req,reply)=>{const id=params(req);const book=await prisma.book.findFirst({where:{id,status:'PUBLISHED',series:{status:'PUBLISHED'}},include:{series:true,chapters:{orderBy:{sortOrder:'asc'}}}});if(!book)return fail(reply,404,'NOT_FOUND','Buch nicht gefunden.');return {book:mapBook(book)}});
 
   app.get('/api/me/bookmarks',async(req,reply)=>{const user=await auth(req,reply);if(!user)return;const rows=await prisma.bookmark.findMany({where:{userId:user.id},include:{book:true},orderBy:{createdAt:'desc'}});return {books:rows.map(r=>mapBook(r.book))}});
