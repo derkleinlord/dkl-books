@@ -1,3 +1,7 @@
 node_modules/
 dist/
 *.log
+.DS_Store
+prisma/.DS_Store
+prisma/migrations/.DS_Store
+.DS_Store
