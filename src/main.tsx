@@ -350,7 +350,13 @@ function App() {
                 ))}
               </div>
             ) : (
-              <Empty text="Die Bibliothek ist noch leer." />
+              <Empty
+                text={
+                  query.trim()
+                    ? `Keine Bücher für „${query.trim()}“ gefunden.`
+                    : "Die Bibliothek ist noch leer."
+                }
+              />
             )}
           </main>
         </>
