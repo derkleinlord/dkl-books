@@ -63,6 +63,8 @@ function App() {
     ),
     [login, setLogin] = useState(false),
     [toast, setToast] = useState("");
+  const dialogRef = useRef<HTMLElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
   const note = (s: string) => {
       setToast(s);
       setTimeout(() => setToast(""), 2500);
@@ -158,7 +160,15 @@ function App() {
     setSelected(null);
     setReader(null);
   }
+  function closeBookDialog() {
+    setSelected(null);
+    if (window.location.pathname.startsWith("/buecher/"))
+      history.pushState(null, "", viewPaths.library);
+    requestAnimationFrame(() => openerRef.current?.focus());
+  }
   async function open(b: BookDto) {
+    const target = document.activeElement;
+    openerRef.current = target instanceof HTMLElement ? target : null;
     const path = "/buecher/" + encodeURIComponent(b.id);
     if (window.location.pathname !== path) history.pushState(null, "", path);
     setView("library");
@@ -167,6 +177,41 @@ function App() {
       (await api<{ book: BookDto }>("/api/library/books/" + b.id)).book,
     );
   }
+  useEffect(() => {
+    if (!selected) return;
+    const dialog = dialogRef.current;
+    const focusables = () =>
+      dialog?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+    const first = focusables()?.[0];
+    (first || dialog)?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeBookDialog();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = focusables();
+      if (!items?.length) {
+        event.preventDefault();
+        dialog?.focus();
+        return;
+      }
+      const firstItem = items[0];
+      const lastItem = items[items.length - 1];
+      if (event.shiftKey && (document.activeElement === firstItem || document.activeElement === dialog)) {
+        event.preventDefault();
+        lastItem.focus();
+      } else if (!event.shiftKey && document.activeElement === lastItem) {
+        event.preventDefault();
+        firstItem.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [selected]);
   async function read(b: BookDto, i = 0) {
     const full = b.chapters
       ? b
@@ -313,13 +358,18 @@ function App() {
       {view === "progress" && <Personal kind="progress" read={read} />}{" "}
       {view === "admin" && me?.role === "ADMIN" && <Admin note={note} />}{" "}
       {selected && (
-        <div className="modal-backdrop" onClick={() => navigateView("library")}>
+        <div className="modal-backdrop" onClick={closeBookDialog}>
           <section
+            ref={dialogRef}
             className="detail-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="book-dialog-title"
+            tabIndex={-1}
             onClick={(e) => e.stopPropagation()}
           >
-            <button className="close" onClick={() => navigateView("library")}>
-              <X />
+            <button className="close" aria-label="Dialog schließen" onClick={closeBookDialog}>
+              <X aria-hidden="true" />
             </button>
             <div className="detail-hero">
               {selected.coverUrl ? (
@@ -330,7 +380,7 @@ function App() {
                 </div>
               )}
               <div className="detail-copy">
-                <h2>{selected.title}</h2>
+                <h2 id="book-dialog-title">{selected.title}</h2>
                 <p>{selected.description}</p>
               </div>
             </div>
@@ -395,9 +445,9 @@ function Card({
 }) {
   return (
     <article className="book-card">
-      <button className="book-cover green" onClick={open}>
+      <button className="book-cover green" onClick={open} aria-label={`Band ${b.volumeNumber}: ${b.title} öffnen`}>
         {b.coverUrl ? (
-          <img src={b.coverUrl} />
+          <img src={b.coverUrl} alt="" />
         ) : (
           <div className="cover-frame">
             <small>DIE GESCHICHTENBIBLIOTHEK</small>
@@ -409,10 +459,10 @@ function Card({
       </button>
       <div className="book-info">
         <div className="book-title-row">
-          <button onClick={open}>
+          <button onClick={open} aria-label={`${b.title} öffnen`}>
             <h3>{b.title}</h3>
           </button>
-          <button onClick={mark}>
+          <button onClick={mark} aria-label={`${b.bookmarked ? "Aus Lesezeichen entfernen" : "Als Lesezeichen speichern"}: ${b.title}`} aria-pressed={b.bookmarked}>
             <Bookmark />
           </button>
         </div>
