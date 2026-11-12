@@ -28,7 +28,15 @@ const viewPaths: Record<View, string> = {
 function routeFromPath(pathname = window.location.pathname): {
   view: View;
   bookId?: string;
+  reader?: boolean;
 } {
+  const reader = pathname.match(/^\/buecher\/([^/]+)\/lesen\/?$/);
+  if (reader)
+    return {
+      view: "library",
+      bookId: decodeURIComponent(reader[1]),
+      reader: true,
+    };
   const book = pathname.match(/^\/buecher\/([^/]+)\/?$/);
   if (book) return { view: "library", bookId: decodeURIComponent(book[1]) };
   const normalized = pathname === "/" ? "/" : pathname.replace(/\/$/, "");
@@ -91,7 +99,11 @@ function App() {
       api<{ book: BookDto }>(
         "/api/library/books/" + encodeURIComponent(initialRoute.bookId),
       )
-        .then((x) => setSelected(x.book))
+        .then((x) => {
+          if (initialRoute.reader && x.book.chapters?.length)
+            setReader({ book: x.book, index: 0 });
+          else setSelected(x.book);
+        })
         .catch(() => {
           history.replaceState(null, "", "/");
           note("Buch nicht gefunden.");
@@ -104,13 +116,17 @@ function App() {
       setReader(null);
       if (!route.bookId) return setSelected(null);
       try {
-        setSelected(
-          (
-            await api<{ book: BookDto }>(
-              "/api/library/books/" + encodeURIComponent(route.bookId),
-            )
-          ).book,
-        );
+        const book = (
+          await api<{ book: BookDto }>(
+            "/api/library/books/" + encodeURIComponent(route.bookId),
+          )
+        ).book;
+        if (route.reader && book.chapters?.length) {
+          setSelected(null);
+          setReader({ book, index: 0 });
+        } else {
+          setSelected(book);
+        }
       } catch {
         history.replaceState(null, "", "/");
         setSelected(null);
@@ -218,8 +234,15 @@ function App() {
       : (await api<{ book: BookDto }>("/api/library/books/" + b.id)).book;
     if (!full.chapters?.length)
       return note("Noch keine Kapitel veröffentlicht.");
-    const path = "/buecher/" + encodeURIComponent(full.id);
-    if (window.location.pathname !== path) history.pushState(null, "", path);
+    const bookPath = "/buecher/" + encodeURIComponent(full.id);
+    const readerPath = bookPath + "/lesen";
+    if (window.location.pathname !== bookPath) {
+      if (window.location.pathname !== viewPaths.library)
+        history.pushState(null, "", viewPaths.library);
+      history.pushState(null, "", bookPath);
+    }
+    if (window.location.pathname !== readerPath)
+      history.pushState(null, "", readerPath);
     setSelected(null);
     const startIndex = i ?? 0;
     setReader({ book: full, index: startIndex });
@@ -414,6 +437,7 @@ function App() {
           close={() => {
             setSelected(reader.book);
             setReader(null);
+            if (window.location.pathname.endsWith("/lesen")) history.back();
           }}
           change={(i) => {
             setReader({ ...reader, index: i });
@@ -521,8 +545,8 @@ function Login({
           }
         }}
       >
-        <button type="button" className="close" onClick={close}>
-          <X />
+        <button type="button" className="close" aria-label="Anmeldedialog schließen" onClick={close}>
+          <X aria-hidden="true" />
         </button>
         <h2>Anmelden</h2>
         <label>
@@ -787,11 +811,11 @@ function Reader({
     <div className="reader">
       <div className="reader-toolbar">
         <button onClick={close}>
-          <ChevronLeft /> Bibliothek
+          <ChevronLeft /> Kapitelliste
         </button>
         <span>{value.book.title}<small>{ready ? `Seite ${Math.min(page + 1, pages.length)} von ${pages.length}` : "Seiten werden vorbereitet …"}</small></span>
-        <button onClick={close}>
-          <X />
+        <button aria-label="Reader schließen" onClick={close}>
+          <X aria-hidden="true" />
         </button>
       </div>
       <div className="book-viewport" ref={viewport}>
