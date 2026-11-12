@@ -212,7 +212,7 @@ function App() {
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [selected]);
-  async function read(b: BookDto, i = 0) {
+  async function read(b: BookDto, i?: number) {
     const full = b.chapters
       ? b
       : (await api<{ book: BookDto }>("/api/library/books/" + b.id)).book;
@@ -221,11 +221,12 @@ function App() {
     const path = "/buecher/" + encodeURIComponent(full.id);
     if (window.location.pathname !== path) history.pushState(null, "", path);
     setSelected(null);
-    setReader({ book: full, index: i });
-    if (me)
+    const startIndex = i ?? 0;
+    setReader({ book: full, index: startIndex });
+    if (me && i === undefined)
       api("/api/me/progress/" + full.id, {
         method: "PUT",
-        body: JSON.stringify({ chapterId: full.chapters[i].id }),
+        body: JSON.stringify({ chapterId: full.chapters[startIndex].id }),
       });
   }
   async function logout() {
@@ -537,6 +538,20 @@ function Login({
     </div>
   );
 }
+function prefaceOffset(chapters: ChapterDto[]) {
+  return chapters[0]?.title.trim().toLocaleLowerCase("de") === "vorwort" ? 1 : 0;
+}
+
+function chapterCount(chapters: ChapterDto[]) {
+  return chapters.length - prefaceOffset(chapters);
+}
+
+function chapterLabel(chapters: ChapterDto[], index: number) {
+  const offset = prefaceOffset(chapters);
+  const number = index - offset + 1;
+  return number < 1 ? "VORWORT" : `KAPITEL ${number} VON ${chapterCount(chapters)}`;
+}
+
 function Reader({
   value,
   me,
@@ -647,7 +662,7 @@ function Reader({
         header.className = "page-chapter-header";
         const eyebrow = document.createElement("div");
         eyebrow.className = "eyebrow";
-        eyebrow.textContent = `KAPITEL ${i + 1} VON ${cs.length}`;
+        eyebrow.textContent = chapterLabel(cs, i);
         const heading = document.createElement("h1");
         heading.textContent = cs[i].title;
         const ornament = document.createElement("div");
@@ -670,7 +685,7 @@ function Reader({
       try {
         const saved = JSON.parse(localStorage.getItem(storageKey) || "null");
         const savedChapter = cs.findIndex((c) => c.id === saved?.chapterId);
-        if (savedChapter >= 0) {
+        if (value.index === 0 && savedChapter >= 0) {
           const count = counts[savedChapter];
           const local = Math.round(Math.max(0, Math.min(1, Number(saved.offset) || 0)) * Math.max(0, count - 1));
           target = nextPages.findIndex((p) => p.chapterIndex === savedChapter && p.localPage === local);
@@ -706,7 +721,7 @@ function Reader({
         <div className="page-content-window">
           <div className="chapter-flow" style={{ width: flowWidth, height: flowHeight, columnWidth: flowWidth, transform: `translateX(-${p.localPage * flowWidth}px)` }}>
             <header className="page-chapter-header">
-              <div className="eyebrow">KAPITEL {p.chapterIndex + 1} VON {cs.length}</div>
+              <div className="eyebrow">{chapterLabel(cs, p.chapterIndex)}</div>
               <h1>{chapter.title}</h1>
               <div className="ornament">❦</div>
             </header>
