@@ -70,6 +70,7 @@ function App() {
     load = async () => {
       const l = await api<{ series: SeriesDto[] }>(
         "/api/library" + (query ? "?q=" + encodeURIComponent(query) : ""),
+        { cache: "no-store" },
       );
       const a = await api<{ user: UserDto }>("/api/auth/me").catch(() => null);
       setMe(a?.user || null);
@@ -118,15 +119,38 @@ function App() {
     return () => removeEventListener("popstate", onPopState);
   }, []);
   useEffect(() => {
-    const t = setTimeout(
-      () =>
-        api<{ series: SeriesDto[] }>(
-          "/api/library" + (query ? "?q=" + encodeURIComponent(query) : ""),
-        ).then((x) => setSeries(x.series)),
-      250,
-    );
-    return () => clearTimeout(t);
-  }, [query]);
+    if (view !== "library") return;
+    const refreshLibrary = () =>
+      api<{ series: SeriesDto[] }>(
+        "/api/library" + (query ? "?q=" + encodeURIComponent(query) : ""),
+        { cache: "no-store" },
+      )
+        .then((x) =>
+          setSeries((current) => {
+            const bookmarked = new Set(
+              current.flatMap((s) =>
+                s.books.filter((b) => b.bookmarked).map((b) => b.id),
+              ),
+            );
+            return x.series.map((s) => ({
+              ...s,
+              books: s.books.map((b) => ({
+                ...b,
+                bookmarked: bookmarked.has(b.id),
+              })),
+            }));
+          }),
+        )
+        .catch(() => {});
+    const initialRefresh = setTimeout(refreshLibrary, 250);
+    const interval = setInterval(refreshLibrary, 3000);
+    addEventListener("focus", refreshLibrary);
+    return () => {
+      clearTimeout(initialRefresh);
+      clearInterval(interval);
+      removeEventListener("focus", refreshLibrary);
+    };
+  }, [query, view]);
   const books = series.flatMap((s) => s.books);
   function navigateView(next: View) {
     history.pushState(null, "", viewPaths[next]);
