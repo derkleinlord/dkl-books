@@ -188,9 +188,9 @@ function App() {
           </span>
         </button>
         <nav>
-          <button onClick={() => navigateView("library")}>Bibliothek</button>
           {me && (
             <>
+              <button onClick={() => navigateView("library")}>Bibliothek</button>
               <button onClick={() => navigateView("bookmarks")}>Lesezeichen</button>
               <button onClick={() => navigateView("progress")}>
                 Lesefortschritt
