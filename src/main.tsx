@@ -671,7 +671,9 @@ function Reader({
         const rect = element.getBoundingClientRect();
         const double = rect.width >= 800;
         const width = Math.max(260, Math.floor(Math.min(560, (rect.width - (double ? 72 : 28)) / (double ? 2 : 1))));
-        const height = Math.max(360, Math.floor(Math.min(780, rect.height - 52)));
+        const controlsSpace = double ? 52 : 72;
+        const minimumHeight = double ? 360 : 160;
+        const height = Math.max(minimumHeight, Math.floor(Math.min(780, rect.height - controlsSpace)));
         setMetrics((old) => old && old.width === width && old.height === height && old.double === double ? old : { width, height, double });
       }, 80);
     };
@@ -817,8 +819,8 @@ function Reader({
   return (
     <div className="reader">
       <div className="reader-toolbar">
-        <button onClick={close}>
-          <ChevronLeft /> Kapitelliste
+        <button aria-label="Kapitelliste öffnen" onClick={close}>
+          <ChevronLeft aria-hidden="true" /> <span className="reader-toolbar-label">Kapitelliste</span>
         </button>
         <span>{value.book.title}<small>{ready ? `Seite ${Math.min(page + 1, pages.length)} von ${pages.length}` : "Seiten werden vorbereitet …"}</small></span>
         <button aria-label="Reader schließen" onClick={close}>
