@@ -30,6 +30,8 @@
 /* Admin surfaces use the same forest-and-gold palette as the library. */
 .login-modal input,.admin-form input,.admin-form select,.nested-form input,.nested-form select{border-color:#8a82544f}
 .form-error{color:#df7770}
+.password-hint{margin:-10px 0 18px;color:var(--muted);font-size:10px}
+.password-logout{margin-left:12px;color:var(--muted)}
 .admin-tabs button{border-color:var(--line);border-radius:3px;color:#b8bdaf}
 .admin-tabs button:hover{background:#c6a66b12;border-color:#c6a66b66;color:#e1c28c}
 .admin-series{border-color:var(--line);background:linear-gradient(135deg,#1a241b,#151d16);border-radius:4px;box-shadow:0 12px 30px #080c0826}

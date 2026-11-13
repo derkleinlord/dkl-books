@@ -14,6 +14,7 @@ import {
   ChevronRight,
   ChevronDown,
   Users,
+  KeyRound,
 } from "lucide-react";
 import type { BookDto, ChapterDto, SeriesDto, UserDto, SeriesSummaryDto, PublicJournalDto, JournalDto, JournalEntryDto, JournalPermission, JournalShareDto } from "../shared/types";
 import "./style.css?theme=forest-v2";
@@ -84,6 +85,7 @@ function App() {
       null,
     ),
     [login, setLogin] = useState(false),
+    [passwordDialog, setPasswordDialog] = useState(false),
     [loginHint, setLoginHint] = useState(""),
     [toast, setToast] = useState("");
   const dialogRef = useRef<HTMLElement>(null);
@@ -99,6 +101,7 @@ function App() {
       );
       const a = await api<{ user: UserDto }>("/api/auth/me").catch(() => null);
       setMe(a?.user || null);
+      setPasswordDialog(Boolean(a?.user.mustChangePassword));
       setSeries(l.series);
       setPublicJournals(l.journals);
     };
@@ -309,6 +312,14 @@ function App() {
               <b>{me.name}</b>
               <button
                 type="button"
+                aria-label="Passwort ändern"
+                title="Passwort ändern"
+                onClick={() => setPasswordDialog(true)}
+              >
+                <KeyRound />
+              </button>
+              <button
+                type="button"
                 aria-label="Abmelden"
                 title="Abmelden"
                 onClick={logout}
@@ -477,7 +488,20 @@ function App() {
           done={(u) => {
             setMe(u);
             setLogin(false);
+            setPasswordDialog(u.mustChangePassword);
             load();
+          }}
+        />
+      )}
+      {me && passwordDialog && (
+        <PasswordDialog
+          required={me.mustChangePassword}
+          close={() => setPasswordDialog(false)}
+          logout={logout}
+          done={(user) => {
+            setMe(user);
+            setPasswordDialog(false);
+            note("Passwort erfolgreich geändert");
           }}
         />
       )}
@@ -675,6 +699,21 @@ function Login({
       </form>
     </div>
   );
+}
+function PasswordDialog({required,close,logout,done}:{required:boolean;close:()=>void;logout:()=>Promise<void>;done:(user:UserDto)=>void}){
+  const [err,setErr]=useState("");
+  return <div className="modal-backdrop"><form className="detail-modal login-modal" onSubmit={async e=>{e.preventDefault();setErr("");const f=new FormData(e.currentTarget);try{const result=await api<{user:UserDto}>("/api/auth/change-password",{method:"POST",body:JSON.stringify({currentPassword:f.get("currentPassword"),newPassword:f.get("newPassword"),confirmation:f.get("confirmation")})});done(result.user)}catch(x){setErr((x as Error).message)}}}>
+    {!required&&<button type="button" className="close" aria-label="Dialog schließen" onClick={close}><X aria-hidden="true"/></button>}
+    <h2>{required?"Neues Passwort festlegen":"Passwort ändern"}</h2>
+    {required&&<p>Bitte ersetze dein vorläufiges Passwort, bevor du fortfährst.</p>}
+    <label>Aktuelles Passwort<input name="currentPassword" type="password" autoComplete="current-password" required autoFocus/></label>
+    <label>Neues Passwort<input name="newPassword" type="password" autoComplete="new-password" minLength={8} maxLength={128} required/></label>
+    <label>Neues Passwort wiederholen<input name="confirmation" type="password" autoComplete="new-password" minLength={8} maxLength={128} required/></label>
+    <p className="password-hint">Mindestens 8 Zeichen.</p>
+    {err&&<p className="form-error">{err}</p>}
+    <button className="gold-button">Passwort speichern</button>
+    {required&&<button type="button" className="password-logout" onClick={logout}>Abmelden</button>}
+  </form></div>
 }
 function Reader({
   value,
@@ -1273,6 +1312,7 @@ function Admin({ note }: { note: (s: string) => void }) {
                 <h3>{u.name}</h3>
                 <p>
                     @{u.username} · {u.role} · {u.active ? "Aktiv" : "Inaktiv"}
+                    {u.mustChangePassword ? " · Passwortwechsel ausstehend" : ""}
                 </p>
               </div>
               <button
@@ -1308,7 +1348,8 @@ function SeriesForm({
       className="admin-form"
       onSubmit={async (e) => {
         e.preventDefault();
-        const f = new FormData(e.currentTarget);
+        const form = e.currentTarget;
+        const f = new FormData(form);
         await api("/api/admin/series" + (series ? "/" + series.id : ""), {
           method: series ? "PUT" : "POST",
           body: JSON.stringify({
@@ -1319,7 +1360,7 @@ function SeriesForm({
             sortOrder: 0,
           }),
         });
-        if (!series) e.currentTarget.reset();
+        if (!series) form.reset();
         saved();
       }}
     >
@@ -1490,24 +1531,31 @@ function ChapterForm({
   );
 }
 function UserForm({ saved }: { saved: () => any }) {
+  const [err, setErr] = useState("");
   return (
     <form
       className="admin-form"
       onSubmit={async (e) => {
         e.preventDefault();
-        const f = new FormData(e.currentTarget);
-        await api("/api/admin/users", {
-          method: "POST",
-          body: JSON.stringify({
-            name: get(f, "name"),
-            username: get(f, "username"),
-            password: get(f, "password"),
-            role: get(f, "role"),
-            active: true,
-          }),
-        });
-        e.currentTarget.reset();
-        saved();
+        const form = e.currentTarget;
+        const f = new FormData(form);
+        setErr("");
+        try {
+          await api("/api/admin/users", {
+            method: "POST",
+            body: JSON.stringify({
+              name: get(f, "name"),
+              username: get(f, "username"),
+              password: get(f, "password"),
+              role: get(f, "role"),
+              active: true,
+            }),
+          });
+          form.reset();
+          await saved();
+        } catch (x) {
+          setErr((x as Error).message);
+        }
       }}
     >
       <h3>Neues Benutzerkonto</h3>
@@ -1521,13 +1569,13 @@ function UserForm({ saved }: { saved: () => any }) {
           <input
             name="username"
             minLength={3}
-            pattern="[a-zA-Z0-9._-]+"
+            pattern="[-a-zA-Z0-9._]+"
             required
           />
         </label>
         <label>
           Passwort
-          <input name="password" type="password" minLength={10} required />
+          <input name="password" type="password" minLength={8} required />
         </label>
         <label>
           Rolle
@@ -1537,6 +1585,7 @@ function UserForm({ saved }: { saved: () => any }) {
           </select>
         </label>
       </div>
+      {err && <p className="form-error">{err}</p>}
       <button>Konto anlegen</button>
     </form>
   );
