@@ -310,6 +310,22 @@ function App() {
           {me?.role === "ADMIN" && (
             <button className={view === "admin" ? "active" : ""} onClick={() => navigateView("admin")}>Verwaltung</button>
           )}
+          {me && (
+            <div className="mobile-nav-account">
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setPasswordDialog(true);
+                }}
+              >
+                <KeyRound /> Passwort ändern
+              </button>
+              <button type="button" className="mobile-logout" onClick={logout}>
+                <LogOut /> Abmelden
+              </button>
+            </div>
+          )}
         </nav>
         <div className="header-actions">
           {me ? (
@@ -317,6 +333,7 @@ function App() {
               <b>{me.name}</b>
               <button
                 type="button"
+                className="desktop-account-action"
                 aria-label="Passwort ändern"
                 title="Passwort ändern"
                 onClick={() => setPasswordDialog(true)}
@@ -325,6 +342,7 @@ function App() {
               </button>
               <button
                 type="button"
+                className="desktop-account-action"
                 aria-label="Abmelden"
                 title="Abmelden"
                 onClick={logout}
