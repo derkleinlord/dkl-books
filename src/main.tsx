@@ -74,6 +74,7 @@ function App() {
       null,
     ),
     [login, setLogin] = useState(false),
+    [loginHint, setLoginHint] = useState(""),
     [toast, setToast] = useState("");
   const dialogRef = useRef<HTMLElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
@@ -315,7 +316,13 @@ function App() {
               </button>
             </>
           ) : (
-            <button className="login-button" onClick={() => setLogin(true)}>
+            <button
+              className="login-button"
+              onClick={() => {
+                setLoginHint("");
+                setLogin(true);
+              }}
+            >
               <LogIn /> Anmelden
             </button>
           )}
@@ -360,7 +367,10 @@ function App() {
                     b={b}
                     open={() => open(b)}
                     mark={async () => {
-                      if (!me) return setLogin(true);
+                      if (!me) {
+                        setLoginHint("Melde dich an, um dieses Buch zu merken.");
+                        return setLogin(true);
+                      }
                       await api("/api/me/bookmarks/" + b.id, {
                         method: b.bookmarked ? "DELETE" : "PUT",
                       });
@@ -460,6 +470,7 @@ function App() {
       )}
       {login && (
         <Login
+          hint={loginHint}
           close={() => setLogin(false)}
           done={(u) => {
             setMe(u);
@@ -521,9 +532,11 @@ function Empty({ text }: { text: string }) {
   );
 }
 function Login({
+  hint,
   close,
   done,
 }: {
+  hint?: string;
   close: () => void;
   done: (u: UserDto) => void;
 }) {
@@ -556,6 +569,7 @@ function Login({
           <X aria-hidden="true" />
         </button>
         <h2>Anmelden</h2>
+        {hint && <p>{hint}</p>}
         <label>
           Benutzername
           <input name="username" autoComplete="username" required />
@@ -575,20 +589,6 @@ function Login({
     </div>
   );
 }
-function prefaceOffset(chapters: ChapterDto[]) {
-  return chapters[0]?.title.trim().toLocaleLowerCase("de") === "vorwort" ? 1 : 0;
-}
-
-function chapterCount(chapters: ChapterDto[]) {
-  return chapters.length - prefaceOffset(chapters);
-}
-
-function chapterLabel(chapters: ChapterDto[], index: number) {
-  const offset = prefaceOffset(chapters);
-  const number = index - offset + 1;
-  return number < 1 ? "VORWORT" : `KAPITEL ${number} VON ${chapterCount(chapters)}`;
-}
-
 function Reader({
   value,
   me,
@@ -699,15 +699,12 @@ function Reader({
         measure.style.columnWidth = `${flowWidth}px`;
         const header = document.createElement("header");
         header.className = "page-chapter-header";
-        const eyebrow = document.createElement("div");
-        eyebrow.className = "eyebrow";
-        eyebrow.textContent = chapterLabel(cs, i);
         const heading = document.createElement("h1");
         heading.textContent = cs[i].title;
         const ornament = document.createElement("div");
         ornament.className = "ornament";
         ornament.textContent = "❦";
-        header.append(eyebrow, heading, ornament);
+        header.append(heading, ornament);
         const content = document.createElement("div");
         content.className = "chapter-content";
         content.innerHTML = cs[i].content || "<p></p>";
@@ -760,7 +757,6 @@ function Reader({
         <div className="page-content-window">
           <div className="chapter-flow" style={{ width: flowWidth, height: flowHeight, columnWidth: flowWidth, transform: `translateX(-${p.localPage * flowWidth}px)` }}>
             <header className="page-chapter-header">
-              <div className="eyebrow">{chapterLabel(cs, p.chapterIndex)}</div>
               <h1>{chapter.title}</h1>
               <div className="ornament">❦</div>
             </header>
