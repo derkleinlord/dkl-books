@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  Menu,
   Users,
   KeyRound,
 } from "lucide-react";
@@ -86,6 +87,7 @@ function App() {
     ),
     [login, setLogin] = useState(false),
     [passwordDialog, setPasswordDialog] = useState(false),
+    [mobileMenuOpen, setMobileMenuOpen] = useState(false),
     [loginHint, setLoginHint] = useState(""),
     [toast, setToast] = useState("");
   const dialogRef = useRef<HTMLElement>(null);
@@ -127,6 +129,7 @@ function App() {
     const onPopState = async () => {
       const route = routeFromPath();
       setView(route.view);
+      setMobileMenuOpen(false);
       setReader(null);
       setActiveSeries(null);setPublicJournal(null);
       if(route.seriesId)return openSeries(route.seriesId,false);
@@ -186,6 +189,7 @@ function App() {
   function navigateView(next: View) {
     history.pushState(null, "", viewPaths[next]);
     setView(next);
+    setMobileMenuOpen(false);
     setSelected(null);
     setReader(null);
     setActiveSeries(null);setPublicJournal(null);
@@ -276,6 +280,7 @@ function App() {
       note("Die Sitzung wurde lokal beendet.");
     } finally {
       setMe(null);
+      setMobileMenuOpen(false);
       history.pushState(null, "", "/");
       setView("library");
       setSelected(null);
@@ -291,19 +296,19 @@ function App() {
             Meine<span>Geschichtenbibliothek.</span>
           </span>
         </button>
-        <nav>
+        <nav id="main-navigation" className={mobileMenuOpen ? "mobile-open" : ""}>
           {me && (
             <>
-              <button onClick={() => navigateView("library")}>Bibliothek</button>
-              <button onClick={() => navigateView("bookmarks")}>Lesezeichen</button>
-              <button onClick={() => navigateView("progress")}>
+              <button className={view === "library" ? "active" : ""} onClick={() => navigateView("library")}>Bibliothek</button>
+              <button className={view === "bookmarks" ? "active" : ""} onClick={() => navigateView("bookmarks")}>Lesezeichen</button>
+              <button className={view === "progress" ? "active" : ""} onClick={() => navigateView("progress")}>
                 Lesefortschritt
               </button>
-              <button onClick={() => navigateView("journals")}>Tagebücher</button>
+              <button className={view === "journals" ? "active" : ""} onClick={() => navigateView("journals")}>Tagebücher</button>
             </>
           )}
           {me?.role === "ADMIN" && (
-            <button onClick={() => navigateView("admin")}>Verwaltung</button>
+            <button className={view === "admin" ? "active" : ""} onClick={() => navigateView("admin")}>Verwaltung</button>
           )}
         </nav>
         <div className="header-actions">
@@ -325,6 +330,16 @@ function App() {
                 onClick={logout}
               >
                 <LogOut />
+              </button>
+              <button
+                type="button"
+                className="mobile-toggle"
+                aria-label={mobileMenuOpen ? "Menü schließen" : "Menü öffnen"}
+                aria-expanded={mobileMenuOpen}
+                aria-controls="main-navigation"
+                onClick={() => setMobileMenuOpen((open) => !open)}
+              >
+                {mobileMenuOpen ? <X /> : <Menu />}
               </button>
             </>
           ) : (
@@ -1117,46 +1132,48 @@ function Admin({ note }: { note: (s: string) => void }) {
                   <h2>{s.title}</h2>
                   </div>
                 </button>
-                <button onClick={() => { expandSeries(s.id); setBookFor(s.id); }}>
-                  <Plus /> Buch
-                </button>
-                <label className="cover-upload">
-                  Reihen-Cover
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp"
-                    onChange={async (e) => {
-                      if (e.target.files?.[0]) {
-                        const form = new FormData();
-                        form.append("file", e.target.files[0]);
-                        await api("/api/admin/series/" + s.id + "/cover", {
-                          method: "POST",
-                          body: form,
-                        });
-                        refresh();
-                      }
+                <div className="admin-row-actions">
+                  <button onClick={() => { expandSeries(s.id); setBookFor(s.id); }}>
+                    <Plus /> Buch
+                  </button>
+                  <label className="cover-upload">
+                    Reihen-Cover
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      onChange={async (e) => {
+                        if (e.target.files?.[0]) {
+                          const form = new FormData();
+                          form.append("file", e.target.files[0]);
+                          await api("/api/admin/series/" + s.id + "/cover", {
+                            method: "POST",
+                            body: form,
+                          });
+                          refresh();
+                        }
+                      }}
+                    />
+                  </label>
+                  <button
+                    aria-label="Reihe bearbeiten"
+                    title="Reihe bearbeiten"
+                    onClick={() => {
+                      expandSeries(s.id);
+                      setSeriesEdit(seriesEdit === s.id ? "" : s.id);
+                    }}
+                  >
+                    <Pencil />
+                  </button>
+                  <Del
+                    label="Reihe"
+                    run={async () => {
+                      await api("/api/admin/series/" + s.id, {
+                        method: "DELETE",
+                      });
+                      refresh();
                     }}
                   />
-                </label>
-                <button
-                  aria-label="Reihe bearbeiten"
-                  title="Reihe bearbeiten"
-                  onClick={() => {
-                    expandSeries(s.id);
-                    setSeriesEdit(seriesEdit === s.id ? "" : s.id);
-                  }}
-                >
-                  <Pencil />
-                </button>
-                <Del
-                  label="Reihe"
-                  run={async () => {
-                    await api("/api/admin/series/" + s.id, {
-                      method: "DELETE",
-                    });
-                    refresh();
-                  }}
-                />
+                </div>
               </div>
               {openSeries.has(s.id) && seriesEdit === s.id && (
                 <SeriesForm
@@ -1197,6 +1214,7 @@ function Admin({ note }: { note: (s: string) => void }) {
                         </p>
                       </div>
                     </button>
+                    <div className="admin-row-actions">
                     <label className="cover-upload">
                       Cover
                       <input
@@ -1237,6 +1255,7 @@ function Admin({ note }: { note: (s: string) => void }) {
                         refresh();
                       }}
                     />
+                    </div>
                   </div>
                   {openBooks.has(b.id) && bookEdit === b.id && (
                     <BookForm
