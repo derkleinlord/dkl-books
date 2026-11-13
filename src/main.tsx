@@ -15,19 +15,22 @@ import {
   ChevronDown,
   Users,
 } from "lucide-react";
-import type { BookDto, ChapterDto, SeriesDto, UserDto } from "../shared/types";
+import type { BookDto, ChapterDto, SeriesDto, UserDto, SeriesSummaryDto, PublicJournalDto, JournalDto, JournalEntryDto, JournalPermission, JournalShareDto } from "../shared/types";
 import "./style.css?theme=forest-v2";
 type Me = UserDto | null;
-type View = "library" | "bookmarks" | "progress" | "admin";
+type View = "library" | "bookmarks" | "progress" | "journals" | "admin";
 const viewPaths: Record<View, string> = {
   library: "/",
   bookmarks: "/lesezeichen",
   progress: "/lesefortschritt",
+  journals: "/tagebuecher",
   admin: "/verwaltung",
 };
 function routeFromPath(pathname = window.location.pathname): {
   view: View;
   bookId?: string;
+  seriesId?: string;
+  publicJournalId?: string;
   reader?: boolean;
 } {
   const reader = pathname.match(/^\/buecher\/([^/]+)\/lesen\/?$/);
@@ -39,6 +42,10 @@ function routeFromPath(pathname = window.location.pathname): {
     };
   const book = pathname.match(/^\/buecher\/([^/]+)\/?$/);
   if (book) return { view: "library", bookId: decodeURIComponent(book[1]) };
+  const series = pathname.match(/^\/buchreihen\/([^/]+)\/?$/);
+  if (series) return { view: "library", seriesId: decodeURIComponent(series[1]) };
+  const journal = pathname.match(/^\/oeffentliche-tagebuecher\/([^/]+)\/?$/);
+  if (journal) return { view: "library", publicJournalId: decodeURIComponent(journal[1]) };
   const normalized = pathname === "/" ? "/" : pathname.replace(/\/$/, "");
   const view = (Object.entries(viewPaths) as [View, string][]).find(
     ([, path]) => path === normalized,
@@ -61,7 +68,10 @@ async function api<T = any>(url: string, init?: RequestInit): Promise<T> {
 }
 function App() {
   const initialRoute = useRef(routeFromPath()).current;
-  const [series, setSeries] = useState<SeriesDto[]>([]),
+  const [series, setSeries] = useState<SeriesSummaryDto[]>([]),
+    [publicJournals, setPublicJournals] = useState<PublicJournalDto[]>([]),
+    [activeSeries, setActiveSeries] = useState<SeriesDto | null>(null),
+    [publicJournal, setPublicJournal] = useState<any>(null),
     [me, setMe] = useState<Me>(null),
     [view, setView] = useState<View>(initialRoute.view),
     [query, setQuery] = useState(""),
@@ -83,23 +93,19 @@ function App() {
       setTimeout(() => setToast(""), 2500);
     },
     load = async () => {
-      const l = await api<{ series: SeriesDto[] }>(
+      const l = await api<{ series: SeriesSummaryDto[]; journals: PublicJournalDto[] }>(
         "/api/library" + (query ? "?q=" + encodeURIComponent(query) : ""),
         { cache: "no-store" },
       );
       const a = await api<{ user: UserDto }>("/api/auth/me").catch(() => null);
       setMe(a?.user || null);
-      if (a?.user) {
-        const marks = await api<{ books: BookDto[] }>("/api/me/bookmarks");
-        const ids = new Set(marks.books.map((b) => b.id));
-        l.series.forEach((s) =>
-          s.books.forEach((b) => (b.bookmarked = ids.has(b.id))),
-        );
-      }
       setSeries(l.series);
+      setPublicJournals(l.journals);
     };
   useEffect(() => {
     load();
+    if (initialRoute.seriesId) openSeries(initialRoute.seriesId, false);
+    if (initialRoute.publicJournalId) openPublicJournal(initialRoute.publicJournalId, false);
     if (initialRoute.bookId)
       api<{ book: BookDto }>(
         "/api/library/books/" + encodeURIComponent(initialRoute.bookId),
@@ -119,6 +125,9 @@ function App() {
       const route = routeFromPath();
       setView(route.view);
       setReader(null);
+      setActiveSeries(null);setPublicJournal(null);
+      if(route.seriesId)return openSeries(route.seriesId,false);
+      if(route.publicJournalId)return openPublicJournal(route.publicJournalId,false);
       if (!route.bookId) return setSelected(null);
       try {
         const book = (
@@ -144,26 +153,11 @@ function App() {
   useEffect(() => {
     if (view !== "library") return;
     const refreshLibrary = () =>
-      api<{ series: SeriesDto[] }>(
+      api<{ series: SeriesSummaryDto[];journals:PublicJournalDto[] }>(
         "/api/library" + (query ? "?q=" + encodeURIComponent(query) : ""),
         { cache: "no-store" },
       )
-        .then((x) =>
-          setSeries((current) => {
-            const bookmarked = new Set(
-              current.flatMap((s) =>
-                s.books.filter((b) => b.bookmarked).map((b) => b.id),
-              ),
-            );
-            return x.series.map((s) => ({
-              ...s,
-              books: s.books.map((b) => ({
-                ...b,
-                bookmarked: bookmarked.has(b.id),
-              })),
-            }));
-          }),
-        )
+        .then((x) => {setSeries(x.series);setPublicJournals(x.journals)})
         .catch(() => {});
     const initialRefresh = setTimeout(refreshLibrary, 250);
     const interval = setInterval(refreshLibrary, 3000);
@@ -174,17 +168,29 @@ function App() {
       removeEventListener("focus", refreshLibrary);
     };
   }, [query, view]);
-  const books = series.flatMap((s) => s.books);
+  const books = activeSeries?.books || [];
+  async function openSeries(id:string,push=true){
+    const result=(await api<{series:SeriesDto}>("/api/library/series/"+id)).series;
+    if(me){const marks=await api<{books:BookDto[]}>("/api/me/bookmarks");const ids=new Set(marks.books.map(b=>b.id));result.books.forEach(b=>b.bookmarked=ids.has(b.id))}
+    if(push)history.pushState(null,"","/buchreihen/"+id);
+    setActiveSeries(result);setPublicJournal(null);setView("library");
+  }
+  async function openPublicJournal(id:string,push=true){
+    const result=(await api<any>("/api/library/journals/"+id)).journal;
+    if(push)history.pushState(null,"","/oeffentliche-tagebuecher/"+id);
+    setPublicJournal(result);setActiveSeries(null);setView("library");
+  }
   function navigateView(next: View) {
     history.pushState(null, "", viewPaths[next]);
     setView(next);
     setSelected(null);
     setReader(null);
+    setActiveSeries(null);setPublicJournal(null);
   }
   function closeBookDialog() {
     setSelected(null);
     if (window.location.pathname.startsWith("/buecher/"))
-      history.pushState(null, "", viewPaths.library);
+      history.pushState(null, "", activeSeries?"/buchreihen/"+activeSeries.id:viewPaths.library);
     requestAnimationFrame(() => openerRef.current?.focus());
   }
   async function open(b: BookDto) {
@@ -271,12 +277,6 @@ function App() {
       setView("library");
       setSelected(null);
       setReader(null);
-      setSeries((items) =>
-        items.map((s) => ({
-          ...s,
-          books: s.books.map((b) => ({ ...b, bookmarked: false })),
-        })),
-      );
     }
   }
   return (
@@ -296,6 +296,7 @@ function App() {
               <button onClick={() => navigateView("progress")}>
                 Lesefortschritt
               </button>
+              <button onClick={() => navigateView("journals")}>Tagebücher</button>
             </>
           )}
           {me?.role === "ADMIN" && (
@@ -330,7 +331,7 @@ function App() {
       </header>
       {view === "library" && (
         <>
-          <section className="hero">
+          {!activeSeries&&!publicJournal&&<section className="hero">
             <div className="hero-bg" />
             <div className="hero-inner">
               <div className="eyebrow">EIN ORT FÜR GESCHICHTEN</div>
@@ -341,14 +342,16 @@ function App() {
               </h1>
               <p>Entdecke Bücher und lies ihre Kapitel direkt online.</p>
             </div>
-          </section>
+          </section>}
           <main className="library-main">
             <div className="section-heading">
               <div>
-                <div className="eyebrow">DEIN NÄCHSTES ABENTEUER</div>
-                <h2>Unsere Bücher</h2>
+                {(activeSeries||publicJournal)&&<button className="text-button" onClick={()=>navigateView("library")}><ChevronLeft/> Zurück zur Bibliothek</button>}
+                <div className="eyebrow">{publicJournal?`TAGEBUCH VON ${publicJournal.ownerName}`:activeSeries?activeSeries.genre:"DEIN NÄCHSTES ABENTEUER"}</div>
+                <h2>{publicJournal?.title||activeSeries?.title||"Unsere Buchreihen"}</h2>
+                {(activeSeries||publicJournal)&&<p className="intro">{(activeSeries||publicJournal).description}</p>}
               </div>
-              <label className="inline-search">
+              {!activeSeries&&!publicJournal&&<label className="inline-search">
                 <Search />
                 <input
                   type="search"
@@ -357,9 +360,11 @@ function App() {
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Suchen …"
                 />
-              </label>
+              </label>}
             </div>
-            {books.length ? (
+            {publicJournal ? (
+              publicJournal.entries.length?<div className="journal-public-list">{publicJournal.entries.map((entry:any)=><article className="news-article" key={entry.id}><span className="pill">{new Date(entry.entryDate).toLocaleDateString("de-DE")}</span><h2>{entry.title||"Tagebucheintrag"}</h2><div className="chapter-content" dangerouslySetInnerHTML={{__html:entry.content}}/></article>)}</div>:<Empty text="Noch keine öffentlichen Einträge."/>
+            ):activeSeries ? (books.length ? (
               <div className="book-grid">
                 {books.map((b) => (
                   <Card
@@ -374,35 +379,32 @@ function App() {
                       await api("/api/me/bookmarks/" + b.id, {
                         method: b.bookmarked ? "DELETE" : "PUT",
                       });
-                      setSeries((xs) =>
-                        xs.map((s) => ({
-                          ...s,
-                          books: s.books.map((x) =>
-                            x.id === b.id
-                              ? { ...x, bookmarked: !b.bookmarked }
-                              : x,
-                          ),
-                        })),
-                      );
+                      setActiveSeries(s=>s?{...s,books:s.books.map(x=>x.id===b.id?{...x,bookmarked:!b.bookmarked}:x)}:s);
                       note("Lesezeichen aktualisiert");
                     }}
                   />
                 ))}
               </div>
+            ) : <Empty text="Diese Buchreihe ist noch leer."/>) : (series.length||publicJournals.length ? (
+              <div className="series-grid">
+                {series.map(s=><SeriesCard key={s.id} title={s.title} description={s.description} meta={`${s.genre} · ${s.bookCount} ${s.bookCount===1?'Buch':'Bücher'}`} coverUrl={s.coverUrl} open={()=>openSeries(s.id)}/>)}
+                {publicJournals.map(j=><SeriesCard key={j.id} title={j.title} description={j.description} meta={`Tagebuch von ${j.ownerName} · ${j.entryCount} ${j.entryCount===1?'Eintrag':'Einträge'}`} open={()=>openPublicJournal(j.id)} journal/>)}
+              </div>
             ) : (
               <Empty
                 text={
                   query.trim()
-                    ? `Keine Bücher für „${query.trim()}“ gefunden.`
+                    ? `Keine Buchreihen für „${query.trim()}“ gefunden.`
                     : "Die Bibliothek ist noch leer."
                 }
               />
-            )}
+            ))}
           </main>
         </>
       )}
       {view === "bookmarks" && <Personal kind="bookmarks" read={read} />}{" "}
       {view === "progress" && <Personal kind="progress" read={read} />}{" "}
+      {view === "journals" && me && <Journals note={note} me={me} />}{" "}
       {view === "admin" && me?.role === "ADMIN" && <Admin note={note} />}{" "}
       {selected && (
         <div className="modal-backdrop" onClick={closeBookDialog}>
@@ -523,6 +525,91 @@ function Card({
     </article>
   );
 }
+function SeriesCard({title,description,meta,open,journal=false,coverUrl=null}:{title:string;description:string;meta:string;open:()=>void;journal?:boolean;coverUrl?:string|null}){
+  return <article className="book-card series-card">
+    <button className={`book-cover ${journal?'brown':'green'}`} onClick={open} aria-label={`${title} öffnen`}>
+      {coverUrl?<img src={coverUrl} alt=""/>:<div className="cover-frame"><small>{journal?'PERSÖNLICHES TAGEBUCH':'DIE GESCHICHTENBIBLIOTHEK'}</small><h3>{title}</h3>{journal?<Pencil className="cover-symbol"/>:<BookOpen className="cover-symbol"/>}<b>{journal?'TAGEBUCH':'BUCHREIHE'}</b></div>}
+    </button>
+    <div className="book-info"><div className="eyebrow">{meta}</div><div className="book-title-row"><button onClick={open}><h3>{title}</h3></button></div><p>{description}</p><button className="book-link" onClick={open}>Entdecken <ChevronRight/></button></div>
+  </article>
+}
+
+function Journals({note,me}:{note:(s:string)=>void;me:UserDto}){
+  const [journals,setJournals]=useState<JournalDto[]>([]),[selected,setSelected]=useState<JournalDto|null>(null),[entry,setEntry]=useState<JournalEntryDto|null>(null),[creating,setCreating]=useState(false),[editing,setEditing]=useState(false);
+  const load=()=>api<{journals:JournalDto[]}>("/api/me/journals").then(x=>setJournals(x.journals));
+  const openJournal=async(id:string)=>{const x=await api<{journal:JournalDto}>("/api/me/journals/"+id);setSelected(x.journal);setEntry(null);setEditing(false)};
+  const openEntry=async(id:string)=>{const x=await api<{entry:JournalEntryDto}>("/api/me/journal-entries/"+id);setEntry(x.entry);setEditing(false)};
+  useEffect(()=>{load()},[]);
+  const own=selected?.permission==='OWNER',canWrite=selected?.permission==='OWNER'||selected?.permission==='WRITE';
+  return <main className="content-main journals-main">
+    <div className="section-heading"><div><div className="eyebrow">DEIN PRIVATER BEREICH</div><h2>Tagebücher</h2></div>{!selected&&<button className="gold-button" onClick={()=>setCreating(true)}><Plus/> Neues Tagebuch</button>}</div>
+    {creating&&<form className="admin-form" onSubmit={async e=>{e.preventDefault();const f=new FormData(e.currentTarget);await api("/api/me/journals",{method:"POST",body:JSON.stringify({title:f.get("title"),description:f.get("description")})});setCreating(false);load();note("Tagebuch angelegt")}}><h3>Neues Tagebuch</h3><label>Titel<input name="title" required/></label><label>Beschreibung<textarea name="description"/></label><div className="form-actions"><button className="gold-button">Anlegen</button><button type="button" onClick={()=>setCreating(false)}>Abbrechen</button></div></form>}
+    {!selected ? <>{journals.length?<div className="series-grid">{journals.map(j=><SeriesCard key={j.id} title={j.title} description={j.description} meta={j.permission==='OWNER'?'Mein Tagebuch':`Geteilt von ${j.ownerName}`} open={()=>openJournal(j.id)} journal/>)}</div>:<Empty text="Du hast noch keine Tagebücher."/>}</>:
+    <><button className="text-button" onClick={()=>{setSelected(null);setEntry(null);load()}}><ChevronLeft/> Alle Tagebücher</button><div className="journal-heading"><div><h2>{selected.title}</h2><p>{selected.description}</p><small>{own?'Mein Tagebuch':`Geteilt von ${selected.ownerName}`}</small></div><div className="form-actions">{own&&!entry&&<button onClick={async()=>{const title=prompt("Titel des Tagebuchs",selected.title);if(!title?.trim())return;const description=prompt("Beschreibung",selected.description);await api("/api/me/journals/"+selected.id,{method:"PUT",body:JSON.stringify({title,description:description??selected.description})});openJournal(selected.id);note("Tagebuch aktualisiert")}}><Pencil/> Bearbeiten</button>}{canWrite&&!entry&&<button className="gold-button" onClick={()=>{setEntry({id:'',journalId:selected.id,title:null,content:'',entryDate:new Date().toISOString(),published:false,createdAt:'',updatedAt:'',permission:selected.permission});setEditing(true)}}><Plus/> Neuer Eintrag</button>}{own&&!entry&&<button className="danger-button" onClick={async()=>{if(confirm("Tagebuch mit allen Einträgen wirklich löschen?")){await api("/api/me/journals/"+selected.id,{method:"DELETE"});setSelected(null);load();note("Tagebuch gelöscht")}}}><Trash2/> Löschen</button>}</div></div>
+      {own&&!entry&&<SharePanel target={`/api/me/journals/${selected.id}/shares`} shares={selected.shares||[]} note={note} refreshed={()=>openJournal(selected.id)}/>}
+      {entry?<EntryEditor entry={entry} own={entry.permission==='OWNER'} editing={editing} setEditing={setEditing} close={()=>{setEntry(null);openJournal(selected.id)}} refresh={()=>entry.id&&openEntry(entry.id)} note={note} me={me}/>:<div className="journal-entry-list">{selected.entries.length?selected.entries.map(e=><button key={e.id} className="journal-entry-row" onClick={()=>openEntry(e.id)}><span><b>{e.title||"Tagebucheintrag"}</b><small>{new Date(e.entryDate).toLocaleDateString("de-DE")}</small></span><span>{e.published?'Öffentlich':e.permission==='OWNER'?'Privat':'Geteilt'}</span><ChevronRight/></button>):<Empty text="Dieses Tagebuch enthält noch keine Einträge."/>}</div>}
+    </>}
+  </main>
+}
+
+function EntryEditor({entry,own,editing,setEditing,close,refresh,note}:{entry:JournalEntryDto;own:boolean;editing:boolean;setEditing:(v:boolean)=>void;close:()=>void;refresh:()=>void;note:(s:string)=>void;me:UserDto}){
+  const canWrite=entry.permission==='OWNER'||entry.permission==='WRITE';
+  const canComment=canWrite||entry.permission==='COMMENT';
+  if(editing)return (
+    <form className="admin-form journal-editor" onSubmit={async e=>{
+      e.preventDefault();
+      const f=new FormData(e.currentTarget);
+      const body={title:f.get("title")||null,entryDate:f.get("entryDate"),content:f.get("content"),...(own?{published:f.get("published")==='on'}:{})};
+      if(entry.id)await api("/api/me/journal-entries/"+entry.id,{method:"PUT",body:JSON.stringify(body)});
+      else await api(`/api/me/journals/${entry.journalId}/entries`,{method:"POST",body:JSON.stringify(body)});
+      note("Eintrag gespeichert");close();
+    }}>
+      <h3>{entry.id?'Eintrag bearbeiten':'Neuer Eintrag'}</h3>
+      <div className="form-grid">
+        <label>Titel<input name="title" defaultValue={entry.title||''}/></label>
+        <label>Datum<input type="date" name="entryDate" required defaultValue={entry.entryDate.slice(0,10)}/></label>
+      </div>
+      <label>Text<textarea className="journal-content-input" name="content" required defaultValue={entry.content}/></label>
+      {own&&<label className="check-label"><input type="checkbox" name="published" defaultChecked={entry.published}/> Öffentlich in der Bibliothek anzeigen</label>}
+      <div className="form-actions"><button className="gold-button">Speichern</button><button type="button" onClick={()=>entry.id?setEditing(false):close()}>Abbrechen</button></div>
+    </form>
+  );
+  return (
+    <article className="journal-entry-detail">
+      <button className="text-button" onClick={close}><ChevronLeft/> Zurück zum Tagebuch</button>
+      <div className="section-heading">
+        <div><span className="pill">{new Date(entry.entryDate).toLocaleDateString("de-DE")}</span><h2>{entry.title||"Tagebucheintrag"}</h2></div>
+        <div className="form-actions">
+          {canWrite&&<button onClick={()=>setEditing(true)}><Pencil/> Bearbeiten</button>}
+          {own&&<button className="danger-button" onClick={async()=>{if(confirm("Eintrag wirklich löschen?")){await api("/api/me/journal-entries/"+entry.id,{method:"DELETE"});close()}}}><Trash2/> Löschen</button>}
+        </div>
+      </div>
+      <div className="news-article journal-reading" dangerouslySetInnerHTML={{__html:entry.content}}/>
+      {own&&<SharePanel target={`/api/me/journal-entries/${entry.id}/shares`} shares={entry.shares||[]} allowNone note={note} refreshed={refresh}/>}
+      <section className="comments">
+        <h3>Kommentare</h3>
+        {entry.comments?.map(c=><div className="comment" key={c.id}>
+          <div><b>{c.authorName}</b><small>{new Date(c.createdAt).toLocaleString("de-DE")}</small></div><p>{c.content}</p>
+          <div className="comment-actions">
+            {c.canEdit&&<button onClick={async()=>{const content=prompt("Kommentar bearbeiten",c.content);if(content?.trim()){await api("/api/me/journal-comments/"+c.id,{method:"PUT",body:JSON.stringify({content})});refresh()}}}><Pencil size={15}/></button>}
+            {c.canDelete&&<button className="danger-button" onClick={async()=>{await api("/api/me/journal-comments/"+c.id,{method:"DELETE"});refresh()}}><Trash2 size={15}/></button>}
+          </div>
+        </div>)}
+        {canComment&&<form onSubmit={async e=>{e.preventDefault();const form=e.currentTarget,f=new FormData(form);await api(`/api/me/journal-entries/${entry.id}/comments`,{method:"POST",body:JSON.stringify({content:f.get("content")})});form.reset();refresh()}}>
+          <textarea name="content" required placeholder="Kommentar schreiben …"/><button className="gold-button">Kommentieren</button>
+        </form>}
+      </section>
+    </article>
+  );
+}
+
+function SharePanel({target,shares,allowNone=false,note,refreshed}:{target:string;shares:JournalShareDto[];allowNone?:boolean;note:(s:string)=>void;refreshed:()=>void}){
+  const [q,setQ]=useState(''),[users,setUsers]=useState<Array<{id:string;username:string;name:string}>>([]);
+  useEffect(()=>{if(q.trim().length<2)return setUsers([]);const timer=setTimeout(()=>api<{users:any[]}>("/api/users/search?q="+encodeURIComponent(q)).then(x=>setUsers(x.users)),250);return()=>clearTimeout(timer)},[q]);
+  const save=async(userId:string,permission:JournalPermission)=>{await api(target,{method:"PUT",body:JSON.stringify({userId,permission})});setQ('');setUsers([]);note("Freigabe aktualisiert");refreshed()};
+  return <section className="share-panel"><h3>Freigaben</h3><label>Nutzer suchen<input value={q} onChange={e=>setQ(e.target.value)} placeholder="Benutzername"/></label>{users.map(u=><div className="share-row" key={u.id}><span><b>{u.name}</b><small>@{u.username}</small></span><div className="share-choices"><button onClick={()=>save(u.id,'READ')}>Lesen</button><button onClick={()=>save(u.id,'COMMENT')}>Kommentieren</button><button onClick={()=>save(u.id,'WRITE')}>Mitschreiben</button></div></div>)}{shares.map(s=><div className="share-row" key={s.userId}><span><b>{s.name}</b><small>@{s.username}</small></span><PermissionSelect value={s.permission} onChange={p=>save(s.userId,p)} allowNone={allowNone}/><button aria-label="Freigabe entfernen" onClick={async()=>{await api(`${target}/${s.userId}`,{method:"DELETE"});refreshed()}}><X/></button></div>)}</section>
+}
+function PermissionSelect({value,onChange,allowNone}:{value:JournalPermission;onChange:(p:JournalPermission)=>void;allowNone:boolean}){return <select value={value} onChange={e=>onChange(e.target.value as JournalPermission)}>{allowNone&&<option value="NONE">Kein Zugriff</option>}<option value="READ">Lesen</option><option value="COMMENT">Kommentieren</option><option value="WRITE">Mitschreiben</option></select>}
 function Empty({ text }: { text: string }) {
   return (
     <div className="empty">
@@ -994,6 +1081,24 @@ function Admin({ note }: { note: (s: string) => void }) {
                 <button onClick={() => { expandSeries(s.id); setBookFor(s.id); }}>
                   <Plus /> Buch
                 </button>
+                <label className="cover-upload">
+                  Reihen-Cover
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={async (e) => {
+                      if (e.target.files?.[0]) {
+                        const form = new FormData();
+                        form.append("file", e.target.files[0]);
+                        await api("/api/admin/series/" + s.id + "/cover", {
+                          method: "POST",
+                          body: form,
+                        });
+                        refresh();
+                      }
+                    }}
+                  />
+                </label>
                 <button
                   aria-label="Reihe bearbeiten"
                   title="Reihe bearbeiten"

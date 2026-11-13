@@ -1,0 +1,4 @@
+ALTER TABLE `Series`
+  ADD COLUMN `coverPath` VARCHAR(255) NULL,
+  ADD COLUMN `coverMimeType` VARCHAR(80) NULL,
+  ADD COLUMN `coverOriginalName` VARCHAR(255) NULL;

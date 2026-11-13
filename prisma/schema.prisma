@@ -17,6 +17,13 @@ enum PublishStatus {
   PUBLISHED
 }
 
+enum JournalPermission {
+  NONE
+  READ
+  COMMENT
+  WRITE
+}
+
 model User {
   id           String            @id @default(uuid()) @db.VarChar(36)
   name         String            @db.VarChar(120)
@@ -29,6 +36,77 @@ model User {
   sessions     Session[]
   bookmarks    Bookmark[]
   progress     ReadingProgress[]
+  journals     Journal[]
+  journalShares JournalShare[]
+  entryShares  JournalEntryShare[]
+  journalComments JournalComment[]
+}
+
+model Journal {
+  id          String   @id @default(uuid()) @db.VarChar(36)
+  ownerId     String   @db.VarChar(36)
+  title       String   @db.VarChar(160)
+  description String   @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  entries     JournalEntry[]
+  shares      JournalShare[]
+
+  @@index([ownerId, updatedAt])
+}
+
+model JournalEntry {
+  id        String   @id @default(uuid()) @db.VarChar(36)
+  journalId String   @db.VarChar(36)
+  title     String?  @db.VarChar(200)
+  content   String   @db.LongText
+  entryDate DateTime
+  published Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  journal   Journal  @relation(fields: [journalId], references: [id], onDelete: Cascade)
+  shares    JournalEntryShare[]
+  comments  JournalComment[]
+
+  @@index([journalId, entryDate])
+  @@index([published, entryDate])
+}
+
+model JournalShare {
+  journalId String            @db.VarChar(36)
+  userId    String            @db.VarChar(36)
+  permission JournalPermission
+  journal   Journal           @relation(fields: [journalId], references: [id], onDelete: Cascade)
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([journalId, userId])
+  @@index([userId])
+}
+
+model JournalEntryShare {
+  entryId   String            @db.VarChar(36)
+  userId    String            @db.VarChar(36)
+  permission JournalPermission
+  entry     JournalEntry      @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([entryId, userId])
+  @@index([userId])
+}
+
+model JournalComment {
+  id        String       @id @default(uuid()) @db.VarChar(36)
+  entryId   String       @db.VarChar(36)
+  authorId  String       @db.VarChar(36)
+  content   String       @db.Text
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  entry     JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  author    User         @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([entryId, createdAt])
+  @@index([authorId])
 }
 
 model Session {
@@ -49,6 +127,9 @@ model Series {
   genre       String        @db.VarChar(120)
   status      PublishStatus @default(DRAFT)
   sortOrder   Int           @default(0)
+  coverPath         String? @db.VarChar(255)
+  coverMimeType     String? @db.VarChar(80)
+  coverOriginalName String? @db.VarChar(255)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
   books       Book[]
