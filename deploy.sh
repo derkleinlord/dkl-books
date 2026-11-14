@@ -81,7 +81,7 @@ systemctl restart "${SERVICE_NAME}.service"
 systemctl reload nginx
 
 for attempt in {1..15}; do
-  if curl --fail --silent --show-error "${HEALTH_URL}" >/dev/null; then
+  if curl --fail --silent "${HEALTH_URL}" >/dev/null; then
     echo "Deployment erfolgreich: ${HEALTH_URL} ist erreichbar."
     exit 0
   fi

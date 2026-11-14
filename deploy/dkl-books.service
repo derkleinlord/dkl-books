@@ -9,6 +9,7 @@ User=www-data
 Group=www-data
 WorkingDirectory=/var/www/dkl-books
 EnvironmentFile=/var/www/dkl-books/.env
+Environment=NODE_ENV=production
 ExecStart=/usr/bin/npm start
 Restart=on-failure
 RestartSec=5

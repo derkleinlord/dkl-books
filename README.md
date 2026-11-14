@@ -58,7 +58,7 @@ Passwörter werden mit Argon2 gehasht. Rich-Text wird serverseitig auf sichere F
 
 ## Deployment
 
-Nach dem Anlegen von `/var/www/dkl-books/.env` kann das vollständige Deployment als root ausgeführt werden:
+Nach dem Anlegen von `/var/www/dkl-books/.env` kann das vollständige Deployment als root ausgeführt werden. `NODE_ENV` gehört nicht in diese Datei; der systemd-Dienst setzt die Variable für den Serverprozess auf `production`:
 
 ```sh
 cd /var/www/dkl-books
