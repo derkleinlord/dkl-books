@@ -500,7 +500,12 @@ function App() {
           close={() => {
             setSelected(reader.book);
             setReader(null);
-            if (window.location.pathname.endsWith("/lesen")) history.back();
+            if (window.location.pathname.endsWith("/lesen"))
+              history.replaceState(
+                null,
+                "",
+                "/buecher/" + encodeURIComponent(reader.book.id),
+              );
           }}
           change={(i) => {
             setReader({ ...reader, index: i, resume: false });
@@ -978,9 +983,6 @@ function Reader({
           <ChevronLeft aria-hidden="true" /> <span className="reader-toolbar-label">Kapitelliste</span>
         </button>
         <span>{value.book.title}<small>{ready ? `Seite ${Math.min(page + 1, pages.length)} von ${pages.length}` : "Seiten werden vorbereitet …"}</small></span>
-        <button aria-label="Reader schließen" onClick={close}>
-          <X aria-hidden="true" />
-        </button>
       </div>
       <div className="book-viewport" ref={viewport}>
         {!ready || !metrics ? <div className="reader-loading">Das Buch wird aufgeschlagen …</div> : (
