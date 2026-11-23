@@ -17,7 +17,7 @@ import {
   Users,
   KeyRound,
 } from "lucide-react";
-import type { BookDto, ChapterDto, SeriesDto, UserDto, SeriesSummaryDto, PublicJournalDto, JournalDto, JournalEntryDto, JournalPermission, JournalShareDto } from "../shared/types";
+import type { BookDto, ChapterDto, SeriesDto, UserDto, SeriesSummaryDto, StandaloneBookDto, PublicJournalDto, JournalDto, JournalEntryDto, JournalPermission, JournalShareDto } from "../shared/types";
 import "./style.css?theme=forest-v2";
 type Me = UserDto | null;
 type View = "library" | "bookmarks" | "progress" | "journals" | "admin";
@@ -71,6 +71,7 @@ async function api<T = any>(url: string, init?: RequestInit): Promise<T> {
 function App() {
   const initialRoute = useRef(routeFromPath()).current;
   const [series, setSeries] = useState<SeriesSummaryDto[]>([]),
+    [standaloneBooks, setStandaloneBooks] = useState<StandaloneBookDto[]>([]),
     [publicJournals, setPublicJournals] = useState<PublicJournalDto[]>([]),
     [activeSeries, setActiveSeries] = useState<SeriesDto | null>(null),
     [publicJournal, setPublicJournal] = useState<any>(null),
@@ -97,7 +98,7 @@ function App() {
       setTimeout(() => setToast(""), 2500);
     },
     load = async () => {
-      const l = await api<{ series: SeriesSummaryDto[]; journals: PublicJournalDto[] }>(
+      const l = await api<{ series: SeriesSummaryDto[]; books: StandaloneBookDto[]; journals: PublicJournalDto[] }>(
         "/api/library" + (query ? "?q=" + encodeURIComponent(query) : ""),
         { cache: "no-store" },
       );
@@ -105,6 +106,7 @@ function App() {
       setMe(a?.user || null);
       setPasswordDialog(Boolean(a?.user.mustChangePassword));
       setSeries(l.series);
+      setStandaloneBooks(l.books);
       setPublicJournals(l.journals);
     };
   useEffect(() => {
@@ -159,11 +161,11 @@ function App() {
   useEffect(() => {
     if (view !== "library") return;
     const refreshLibrary = () =>
-      api<{ series: SeriesSummaryDto[];journals:PublicJournalDto[] }>(
+      api<{ series: SeriesSummaryDto[];books:StandaloneBookDto[];journals:PublicJournalDto[] }>(
         "/api/library" + (query ? "?q=" + encodeURIComponent(query) : ""),
         { cache: "no-store" },
       )
-        .then((x) => {setSeries(x.series);setPublicJournals(x.journals)})
+        .then((x) => {setSeries(x.series);setStandaloneBooks(x.books);setPublicJournals(x.journals)})
         .catch(() => {});
     const initialRefresh = setTimeout(refreshLibrary, 250);
     const interval = setInterval(refreshLibrary, 3000);
@@ -195,9 +197,10 @@ function App() {
     setActiveSeries(null);setPublicJournal(null);
   }
   function closeBookDialog() {
+    const seriesId = selected?.seriesId;
     setSelected(null);
     if (window.location.pathname.startsWith("/buecher/"))
-      history.pushState(null, "", activeSeries?"/buchreihen/"+activeSeries.id:viewPaths.library);
+      history.pushState(null, "", seriesId?"/buchreihen/"+seriesId:viewPaths.library);
     requestAnimationFrame(() => openerRef.current?.focus());
   }
   async function open(b: BookDto) {
@@ -429,8 +432,9 @@ function App() {
                   />
                 ))}
               </div>
-            ) : <Empty text="Diese Buchreihe ist noch leer."/>) : (series.length||publicJournals.length ? (
+            ) : <Empty text="Diese Buchreihe ist noch leer."/>) : (series.length||standaloneBooks.length||publicJournals.length ? (
               <div className="series-grid">
+                {standaloneBooks.map(b=><BookLibraryCard key={b.id} book={b} open={()=>open(b)}/>)}
                 {series.map(s=><SeriesCard key={s.id} title={s.title} description={s.description} meta={`${s.genre} · ${s.bookCount} ${s.bookCount===1?'Buch':'Bücher'}`} coverUrl={s.coverUrl} open={()=>openSeries(s.id)}/>)}
                 {publicJournals.map(j=><SeriesCard key={j.id} title={j.title} description={j.description} meta={`Tagebuch von ${j.ownerName} · ${j.entryCount} ${j.entryCount===1?'Eintrag':'Einträge'}`} open={()=>openPublicJournal(j.id)} journal/>)}
               </div>
@@ -438,7 +442,7 @@ function App() {
               <Empty
                 text={
                   query.trim()
-                    ? `Keine Buchreihen für „${query.trim()}“ gefunden.`
+                    ? `Keine Bücher oder Buchreihen für „${query.trim()}“ gefunden.`
                     : "Die Bibliothek ist noch leer."
                 }
               />
@@ -593,6 +597,14 @@ function SeriesCard({title,description,meta,open,journal=false,coverUrl=null}:{t
       {coverUrl?<img src={coverUrl} alt=""/>:<div className="cover-frame"><small>{journal?'PERSÖNLICHES TAGEBUCH':'DIE GESCHICHTENBIBLIOTHEK'}</small><h3>{title}</h3>{journal?<Pencil className="cover-symbol"/>:<BookOpen className="cover-symbol"/>}<b>{journal?'TAGEBUCH':'BUCHREIHE'}</b></div>}
     </button>
     <div className="book-info"><div className="eyebrow">{meta}</div><div className="book-title-row"><button onClick={open}><h3>{title}</h3></button></div><p>{description}</p><button className="book-link" onClick={open}>Entdecken <ChevronRight/></button></div>
+  </article>
+}
+function BookLibraryCard({book,open}:{book:BookDto;open:()=>void}){
+  return <article className="book-card series-card">
+    <button className="book-cover green" onClick={open} aria-label={`${book.title} öffnen`}>
+      {book.coverUrl?<img src={book.coverUrl} alt=""/>:<div className="cover-frame"><small>DIE GESCHICHTENBIBLIOTHEK</small><h3>{book.title}</h3><BookOpen className="cover-symbol"/><b>EINZELBAND</b></div>}
+    </button>
+    <div className="book-info"><div className="eyebrow">EINZELBAND</div><div className="book-title-row"><button onClick={open}><h3>{book.title}</h3></button></div><p>{book.description}</p><button className="book-link" onClick={open}>Buch entdecken <ChevronRight/></button></div>
   </article>
 }
 
@@ -1065,6 +1077,7 @@ function Personal({
 }
 function Admin({ note }: { note: (s: string) => void }) {
   const [data, setData] = useState<SeriesDto[]>([]),
+    [standalone, setStandalone] = useState<BookDto[]>([]),
     [users, setUsers] = useState<UserDto[]>([]),
     [tab, setTab] = useState<"content" | "users">("content"),
     [bookFor, setBookFor] = useState(""),
@@ -1072,7 +1085,8 @@ function Admin({ note }: { note: (s: string) => void }) {
     [seriesEdit, setSeriesEdit] = useState(""),
     [bookEdit, setBookEdit] = useState(""),
     [chapterEdit, setChapterEdit] = useState(""),
-    [showNewSeries, setShowNewSeries] = useState(false),
+    [createContent, setCreateContent] = useState<"series" | "book" | null>(null),
+    [openStandalone, setOpenStandalone] = useState(true),
     [openSeries, setOpenSeries] = useState<Set<string>>(new Set()),
     [openBooks, setOpenBooks] = useState<Set<string>>(new Set());
   const toggleSeries = (id: string) =>
@@ -1095,9 +1109,9 @@ function Admin({ note }: { note: (s: string) => void }) {
     setOpenBooks((current) => new Set(current).add(id));
   const refresh = () =>
     Promise.all([
-      api<{ series: SeriesDto[] }>("/api/admin/series").then((x) =>
-        setData(x.series),
-      ),
+      api<{ series: SeriesDto[]; books: BookDto[] }>("/api/admin/series").then((x) => {
+        setData(x.series);setStandalone(x.books);
+      }),
       api<{ users: UserDto[] }>("/api/admin/users").then((x) =>
         setUsers(x.users),
       ),
@@ -1118,23 +1132,21 @@ function Admin({ note }: { note: (s: string) => void }) {
       </div>
       {tab === "content" ? (
         <>
-          <button
-            className="admin-create-toggle"
-            type="button"
-            aria-expanded={showNewSeries}
-            onClick={() => setShowNewSeries((open) => !open)}
-          >
-            <Plus /> Neue Buchreihe
-            {showNewSeries ? <ChevronDown /> : <ChevronRight />}
-          </button>
-          {showNewSeries && (
-            <SeriesForm
-              saved={() => {
-                setShowNewSeries(false);
-                refresh();
-              }}
-            />
-          )}
+          <div className="admin-create-actions">
+            <button type="button" className="gold-button" onClick={() => setCreateContent("series")}><Plus/> Buchreihe erstellen</button>
+            <button type="button" className="outline-button" onClick={() => setCreateContent("book")}><Plus/> Einzelbuch erstellen</button>
+          </div>
+          <section className="admin-series">
+            <div className="admin-heading">
+              <button className="admin-series-toggle" type="button" aria-expanded={openStandalone} onClick={() => setOpenStandalone(open => !open)}>
+                {openStandalone ? <ChevronDown /> : <ChevronRight />}
+                <div><h2>Einzelbände</h2><p>{standalone.length} {standalone.length === 1 ? "Buch" : "Bücher"}</p></div>
+              </button>
+            </div>
+            {openStandalone && <>
+              {standalone.map(b=><StandaloneAdminBook key={b.id} book={b} refresh={refresh} />)}
+            </>}
+          </section>
           {data.map((s) => (
             <section className="admin-series" key={s.id}>
               <div className="admin-heading">
@@ -1340,6 +1352,16 @@ function Admin({ note }: { note: (s: string) => void }) {
               ))}
             </section>
           ))}
+          {createContent && <div className="modal-backdrop" onClick={() => setCreateContent(null)}>
+            <section className="detail-modal admin-create-modal" role="dialog" aria-modal="true" aria-labelledby="create-content-title" onClick={e => e.stopPropagation()}>
+              <button className="close" aria-label="Dialog schließen" onClick={() => setCreateContent(null)}><X/></button>
+              <div className="eyebrow">BIBLIOTHEK VERWALTEN</div>
+              <h2 id="create-content-title">{createContent === "series" ? "Neue Buchreihe" : "Neues Einzelbuch"}</h2>
+              {createContent === "series"
+                ? <SeriesForm saved={() => {setCreateContent(null);refresh()}} cancel={() => setCreateContent(null)} />
+                : <BookForm saved={() => {setCreateContent(null);refresh()}} standalone cancel={() => setCreateContent(null)} />}
+            </section>
+          </div>}
         </>
       ) : (
         <>
@@ -1434,16 +1456,29 @@ function SeriesForm({
     </form>
   );
 }
+function StandaloneAdminBook({book,refresh}:{book:BookDto;refresh:()=>any}){
+  const [editing,setEditing]=useState(false),[adding,setAdding]=useState(false);
+  return <div className="admin-book">
+    <div className="book-summary"><div><h3>{book.title}</h3><p>{book.status==='PUBLISHED'?'Veröffentlicht':'Entwurf'} · {book.chapters?.length||0} Kapitel</p></div>
+      <div className="admin-row-actions"><label className="cover-upload">Cover<input type="file" accept="image/png,image/jpeg,image/webp" onChange={async e=>{if(e.target.files?.[0]){const f=new FormData();f.append('file',e.target.files[0]);await api('/api/admin/books/'+book.id+'/cover',{method:'POST',body:f});refresh()}}}/></label>
+      <button onClick={()=>setAdding(!adding)}><Plus/> Kapitel</button><button onClick={()=>setEditing(!editing)}><Pencil/></button><Del label="Buch" run={async()=>{await api('/api/admin/books/'+book.id,{method:'DELETE'});refresh()}}/></div></div>
+    {editing&&<BookForm book={book} saved={()=>{setEditing(false);refresh()}} cancel={()=>setEditing(false)} standalone/>}
+    {adding&&<ChapterForm id={book.id} next={(book.chapters?.length||0)+1} saved={()=>{setAdding(false);refresh()}}/>}
+    {book.chapters?.map(c=><div className="chapter-row" key={c.id}><b>{c.sortOrder}</b><span>{c.title}</span><Del label="Kapitel" run={async()=>{await api('/api/admin/chapters/'+c.id,{method:'DELETE'});refresh()}}/></div>)}
+  </div>
+}
 function BookForm({
   id,
   saved,
   book,
   cancel,
+  standalone,
 }: {
-  id: string;
+  id?: string;
   saved: () => void;
   book?: BookDto;
   cancel?: () => void;
+  standalone?: boolean;
 }) {
   return (
     <form
@@ -1454,7 +1489,7 @@ function BookForm({
         await api("/api/admin/books" + (book ? "/" + book.id : ""), {
           method: book ? "PUT" : "POST",
           body: JSON.stringify({
-            seriesId: id,
+            ...(!standalone && id ? {seriesId: id} : {}),
             title: get(f, "title"),
             subtitle: get(f, "subtitle") || null,
             description: get(f, "description"),
@@ -1466,7 +1501,7 @@ function BookForm({
         saved();
       }}
     >
-      <h3>{book ? "Buch bearbeiten" : "Neues Buch"}</h3>
+      <h3>{book ? "Buch bearbeiten" : standalone ? "Neuer Einzelband" : "Neues Buch"}</h3>
       <div className="form-grid">
         <label>
           Titel
@@ -1476,10 +1511,10 @@ function BookForm({
           Untertitel
           <input name="subtitle" defaultValue={book?.subtitle || ""} />
         </label>
-        <label>
+        {!standalone && <label>
           Band
           <input name="volume" type="number" min="1" defaultValue={book?.volumeNumber} placeholder="wird automatisch vergeben" />
-        </label>
+        </label>}
         <label>
           Status
           <select name="status" defaultValue={book?.status || "DRAFT"}>
@@ -1493,7 +1528,7 @@ function BookForm({
         <textarea name="description" defaultValue={book?.description} />
       </label>
       <div className="form-actions">
-        <button>{book ? "Änderungen speichern" : "Buch anlegen"}</button>
+        <button>{book ? "Änderungen speichern" : standalone ? "Einzelband anlegen" : "Buch anlegen"}</button>
         {cancel && <button type="button" onClick={cancel}>Abbrechen</button>}
       </div>
     </form>

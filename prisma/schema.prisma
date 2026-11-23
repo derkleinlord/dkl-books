@@ -140,7 +140,7 @@ model Series {
 
 model Book {
   id                String            @id @default(uuid()) @db.VarChar(36)
-  seriesId          String            @db.VarChar(36)
+  seriesId          String?           @db.VarChar(36)
   title             String            @db.VarChar(160)
   subtitle          String?           @db.VarChar(200)
   description       String            @db.Text
@@ -152,7 +152,7 @@ model Book {
   coverOriginalName String?           @db.VarChar(255)
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
-  series            Series            @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  series            Series?           @relation(fields: [seriesId], references: [id], onDelete: SetNull)
   chapters          Chapter[]
   bookmarks         Bookmark[]
   progress          ReadingProgress[]

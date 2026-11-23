@@ -1,0 +1,10 @@
+ALTER TABLE `Book`
+  DROP FOREIGN KEY `Book_seriesId_fkey`;
+
+ALTER TABLE `Book`
+  MODIFY `seriesId` VARCHAR(36) NULL;
+
+ALTER TABLE `Book`
+  ADD CONSTRAINT `Book_seriesId_fkey`
+  FOREIGN KEY (`seriesId`) REFERENCES `Series`(`id`)
+  ON DELETE SET NULL ON UPDATE CASCADE;
