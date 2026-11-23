@@ -91,6 +91,7 @@ function App() {
     [mobileMenuOpen, setMobileMenuOpen] = useState(false),
     [loginHint, setLoginHint] = useState(""),
     [toast, setToast] = useState("");
+  const [bookView, setBookView] = useState<"carousel" | "grid">("carousel");
   const dialogRef = useRef<HTMLElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
   const note = (s: string) => {
@@ -412,7 +413,9 @@ function App() {
             {publicJournal ? (
               publicJournal.entries.length?<div className="journal-public-list">{publicJournal.entries.map((entry:any)=><article className="news-article" key={entry.id}><span className="pill">{new Date(entry.entryDate).toLocaleDateString("de-DE")}</span><h2>{entry.title||"Tagebucheintrag"}</h2><div className="chapter-content" dangerouslySetInnerHTML={{__html:entry.content}}/></article>)}</div>:<Empty text="Noch keine öffentlichen Einträge."/>
             ):activeSeries ? (books.length ? (
-              <div className="book-grid">
+              <>
+              <ViewSwitch view={bookView} setView={setBookView}/>
+              {bookView === "carousel" ? <BookCarousel books={books} open={open}/> : <div className="book-grid">
                 {books.map((b) => (
                   <Card
                     key={b.id}
@@ -431,13 +434,17 @@ function App() {
                     }}
                   />
                 ))}
-              </div>
+              </div>}
+              </>
             ) : <Empty text="Diese Buchreihe ist noch leer."/>) : (series.length||standaloneBooks.length||publicJournals.length ? (
-              <div className="series-grid">
+              <>
+              <ViewSwitch view={bookView} setView={setBookView}/>
+              {bookView === "carousel" ? <LibraryCarousel standalone={standaloneBooks} series={series} journals={publicJournals} open={open} openSeries={openSeries} openJournal={openPublicJournal}/> : <div className="series-grid">
                 {standaloneBooks.map(b=><BookLibraryCard key={b.id} book={b} open={()=>open(b)}/>)}
                 {series.map(s=><SeriesCard key={s.id} title={s.title} description={s.description} meta={`${s.genre} · ${s.bookCount} ${s.bookCount===1?'Buch':'Bücher'}`} coverUrl={s.coverUrl} open={()=>openSeries(s.id)}/>)}
                 {publicJournals.map(j=><SeriesCard key={j.id} title={j.title} description={j.description} meta={`Tagebuch von ${j.ownerName} · ${j.entryCount} ${j.entryCount===1?'Eintrag':'Einträge'}`} open={()=>openPublicJournal(j.id)} journal/>)}
-              </div>
+              </div>}
+              </>
             ) : (
               <Empty
                 text={
@@ -590,6 +597,34 @@ function Card({
       </div>
     </article>
   );
+}
+function ViewSwitch({view,setView}:{view:"carousel"|"grid";setView:(v:"carousel"|"grid")=>void}){
+  return <div className="view-switch" aria-label="Ansicht wählen"><button className={view==="carousel"?"selected":""} aria-pressed={view==="carousel"} onClick={()=>setView("carousel")}>Blättern</button><button className={view==="grid"?"selected":""} aria-pressed={view==="grid"} onClick={()=>setView("grid")}>Raster</button></div>;
+}
+type CarouselItem={id:string;title:string;description:string;coverUrl?:string|null;volumeNumber?:number|null;kind:string;meta:string;open:()=>void};
+function BookCarousel({books,open}:{books:BookDto[];open:(b:BookDto)=>void}){
+  const items=books.map(b=>({id:b.id,title:b.title,description:b.description,coverUrl:b.coverUrl,volumeNumber:b.volumeNumber,kind:"BAND",meta:`BAND ${b.volumeNumber}`,open:()=>open(b)}));
+  return <Carousel items={items}/>;
+}
+function LibraryCarousel({standalone,series,journals,open,openSeries,openJournal}:{standalone:StandaloneBookDto[];series:SeriesSummaryDto[];journals:PublicJournalDto[];open:(b:BookDto)=>void;openSeries:(id:string)=>void;openJournal:(id:string)=>void}){
+  const items:CarouselItem[]=[...standalone.map(b=>({id:b.id,title:b.title,description:b.description,coverUrl:b.coverUrl,volumeNumber:null,kind:"EINZELBAND",meta:"EINZELBAND",open:()=>open(b)})),...series.map(s=>({id:s.id,title:s.title,description:s.description,coverUrl:s.coverUrl,volumeNumber:s.bookCount,kind:"BUCHREIHE",meta:`${s.genre} · ${s.bookCount} ${s.bookCount===1?'BAND':'BÄNDE'}`,open:()=>openSeries(s.id)})),...journals.map(j=>({id:j.id,title:j.title,description:`Tagebuch von ${j.ownerName}`,coverUrl:null,volumeNumber:null,kind:"TAGEBUCH",meta:`TAGEBUCH VON ${j.ownerName}`,open:()=>openJournal(j.id)}))];
+  return <Carousel items={items}/>;
+}
+function Carousel({items}:{items:CarouselItem[]}){
+  const [index,setIndex]=useState(0), start=useRef<number|null>(null);
+  useEffect(()=>setIndex(0),[items.length]);
+  const move=useCallback((delta:number)=>setIndex(i=>Math.max(0,Math.min(items.length-1,i+delta))),[items.length]);
+  if(!items.length)return null;
+  const item=items[index];
+  return <section className="book-carousel" aria-label="Bücher zum Durchblättern" onTouchStart={e=>{start.current=e.touches[0].clientX}} onTouchEnd={e=>{if(start.current!==null){const d=e.changedTouches[0].clientX-start.current;if(Math.abs(d)>45)move(d<0?1:-1);start.current=null}}} onKeyDown={e=>{if(e.key==="ArrowRight")move(1);if(e.key==="ArrowLeft")move(-1)}} tabIndex={0}>
+    <button className="carousel-arrow prev" onClick={()=>move(-1)} disabled={index===0} aria-label="Vorheriges Buch"><ChevronLeft/></button>
+    <button className="carousel-book" onClick={item.open} aria-label={`${item.meta}: ${item.title} öffnen`}>
+      <div className="carousel-cover">{item.coverUrl?<img src={item.coverUrl} alt=""/>:<div className="cover-frame"><small>DIE GESCHICHTENBIBLIOTHEK</small><h3>{item.title}</h3><BookOpen className="cover-symbol"/><b>{item.meta}</b></div>}</div>
+      <div className="carousel-copy"><span className="carousel-volume">{item.meta}</span><h3>{item.title}</h3><span className="carousel-open">Buch entdecken <ChevronRight/></span></div>
+    </button>
+    <button className="carousel-arrow next" onClick={()=>move(1)} disabled={index===items.length-1} aria-label="Nächstes Buch"><ChevronRight/></button>
+    <div className="carousel-status"><span>{index+1} von {items.length}</span><div className="carousel-dots">{items.map((it,i)=><button key={it.id} onClick={()=>setIndex(i)} aria-label={`Band ${i+1} anzeigen`} aria-current={index===i} className={index===i?"current":""}/>)}</div><small>Mit den Pfeilen oder per Wischbewegung blättern</small></div>
+  </section>;
 }
 function SeriesCard({title,description,meta,open,journal=false,coverUrl=null}:{title:string;description:string;meta:string;open:()=>void;journal?:boolean;coverUrl?:string|null}){
   return <article className="book-card series-card">
